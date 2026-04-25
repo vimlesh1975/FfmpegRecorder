@@ -1,13 +1,17 @@
-﻿<Global.Microsoft.VisualBasic.CompilerServices.DesignerGenerated()>
-Partial Class Form1
-    Inherits System.Windows.Forms.Form
+<Global.Microsoft.VisualBasic.CompilerServices.DesignerGenerated()>
+Partial Class RecorderControl
+    Inherits System.Windows.Forms.UserControl
 
-    'Form overrides dispose to clean up the component list.
+    'UserControl overrides dispose to clean up the component list.
     <System.Diagnostics.DebuggerNonUserCode()>
     Protected Overrides Sub Dispose(disposing As Boolean)
         Try
-            If disposing AndAlso components IsNot Nothing Then
-                components.Dispose()
+            If disposing Then
+                DisposeRecorderResources()
+
+                If components IsNot Nothing Then
+                    components.Dispose()
+                End If
             End If
         Finally
             MyBase.Dispose(disposing)
@@ -24,8 +28,8 @@ Partial Class Form1
     Private Sub InitializeComponent()
         components = New System.ComponentModel.Container()
         AutoScaleMode = AutoScaleMode.Font
-        ClientSize = New Size(800, 450)
-        Text = "Form1"
+        Margin = New Padding(0)
+        Name = "RecorderControl"
+        Size = New Size(470, 392)
     End Sub
-
 End Class

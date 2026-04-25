@@ -10,20 +10,25 @@ Friend Class RecorderOptions
     Public Property FilePrefix As String
     Public Property ClipDurationSeconds As Integer
     Public Property ContainerExtension As String
+    Public Property VideoFilter As String
     Public Property OutputOptions As String
 
     Public Function BuildOutputPattern(Optional timestampToken As String = Nothing) As String
-        Dim stamp = If(String.IsNullOrWhiteSpace(timestampToken), DateTime.Now.ToString("yyyyMMdd_HHmmss"), timestampToken)
+        Dim stamp = If(String.IsNullOrWhiteSpace(timestampToken), "%d%m%Y_%H%M%S", timestampToken)
         Dim safePrefix = If(String.IsNullOrWhiteSpace(FilePrefix), "clip", FilePrefix.Trim())
         Dim safeExtension = If(String.IsNullOrWhiteSpace(ContainerExtension), ".mov", ContainerExtension.Trim())
 
-        Return IO.Path.Combine(OutputFolder, $"{safePrefix}_{stamp}_%03d{safeExtension}")
+        Return IO.Path.Combine(OutputFolder, $"{safePrefix}_{stamp}{safeExtension}")
     End Function
 
     Public Function BuildArguments(outputPattern As String) As String
         Dim builder As New StringBuilder()
 
         AppendInputArguments(builder)
+
+        If Not String.IsNullOrWhiteSpace(VideoFilter) Then
+            builder.Append("-vf ").Append(Quote(VideoFilter.Trim())).Append(" ")
+        End If
 
         If String.IsNullOrWhiteSpace(OutputOptions) Then
             builder.Append("-c:v prores_ks -profile:v 3 -pix_fmt yuv422p10le -vendor apl0 -bits_per_mb 2400 -c:a pcm_s16le -ar 48000 ")
@@ -36,6 +41,7 @@ Friend Class RecorderOptions
         builder.Append("-reset_timestamps 1 ")
         builder.Append("-segment_start_number 0 ")
         builder.Append("-segment_format ").Append(Quote(GetSegmentFormat())).Append(" ")
+        builder.Append("-strftime 1 ")
         builder.Append(Quote(outputPattern))
 
         Return builder.ToString().Trim()
@@ -43,7 +49,7 @@ Friend Class RecorderOptions
 
     Public Function BuildRecordingWithPreviewArguments(outputPattern As String, previewPort As Integer, audioMonitorPort As Integer, Optional previewWidth As Integer = 960, Optional previewFrameRate As Integer = 8) As String
         Dim builder As New StringBuilder()
-        Dim filterGraph = BuildRecordingPreviewFilterGraph(audioMonitorPort, previewWidth, previewFrameRate)
+        Dim filterGraph = BuildRecordingPreviewFilterGraph(audioMonitorPort, previewWidth, previewFrameRate, VideoFilter)
 
         AppendInputArguments(builder)
         builder.Append("-filter_complex ").Append(Quote(filterGraph)).Append(" ")
@@ -62,6 +68,7 @@ Friend Class RecorderOptions
         builder.Append("-reset_timestamps 1 ")
         builder.Append("-segment_start_number 0 ")
         builder.Append("-segment_format ").Append(Quote(GetSegmentFormat())).Append(" ")
+        builder.Append("-strftime 1 ")
         builder.Append(Quote(outputPattern)).Append(" ")
 
         builder.Append("-map ").Append(Quote("[preview]")).Append(" ")
@@ -126,15 +133,24 @@ Friend Class RecorderOptions
         Return $"tcp://127.0.0.1:{audioMonitorPort}?listen=1"
     End Function
 
-    Private Function BuildRecordingPreviewFilterGraph(audioMonitorPort As Integer, previewWidth As Integer, previewFrameRate As Integer) As String
+    Private Function BuildRecordingPreviewFilterGraph(audioMonitorPort As Integer, previewWidth As Integer, previewFrameRate As Integer, recordingVideoFilter As String) As String
         Dim previewHeight = GetPreviewHeight(previewWidth)
         Dim meterChannelWidth = GetMeterChannelWidth(previewWidth)
         Dim meterOutputWidth = GetMeterOutputWidth(previewWidth)
         Dim audioSplitOutputs = If(audioMonitorPort > 0, "[rec_a][meter_a][mon_a]", "[rec_a][meter_a]")
         Dim audioSplitCount = If(audioMonitorPort > 0, 3, 2)
         Dim rightMeterPan = GetRightMeterPanExpression()
+        Dim recordingChain = BuildRecordingVideoChain(recordingVideoFilter)
 
-        Return $"[0:v]split=2[rec_v][preview_src];[preview_src]scale={previewWidth}:{previewHeight}:force_original_aspect_ratio=decrease,pad={previewWidth}:{previewHeight}:(ow-iw)/2:(oh-ih)/2,fps={Math.Max(1, previewFrameRate)},format=yuv420p[preview_video];[0:a]asplit={audioSplitCount}{audioSplitOutputs};[meter_a]asplit=2[left_meter_src][right_meter_src];[left_meter_src]pan=mono|c0=c0,showvolume=r={Math.Max(1, previewFrameRate)}:w={meterChannelWidth}:h={previewHeight}:f=0.92:b=2:t=0:v=1:dm=1:o=v:ds=log:p=0.18:m=r[left_bar_src];[left_bar_src]scale={meterOutputWidth}:{previewHeight},format=yuv420p[left_bar];[right_meter_src]pan={rightMeterPan},showvolume=r={Math.Max(1, previewFrameRate)}:w={meterChannelWidth}:h={previewHeight}:f=0.92:b=2:t=0:v=1:dm=1:o=v:ds=log:p=0.18:m=r[right_bar_src];[right_bar_src]scale={meterOutputWidth}:{previewHeight},format=yuv420p[right_bar];[left_bar][preview_video][right_bar]hstack=inputs=3[preview]"
+        Return $"[0:v]split=2[rec_src][preview_src];{recordingChain}[preview_src]scale={previewWidth}:{previewHeight}:force_original_aspect_ratio=decrease,pad={previewWidth}:{previewHeight}:(ow-iw)/2:(oh-ih)/2,fps={Math.Max(1, previewFrameRate)},format=yuv420p[preview_video];[0:a]asplit={audioSplitCount}{audioSplitOutputs};[meter_a]asplit=2[left_meter_src][right_meter_src];[left_meter_src]pan=mono|c0=c0,showvolume=r={Math.Max(1, previewFrameRate)}:w={meterChannelWidth}:h={previewHeight}:f=0.92:b=2:t=0:v=1:dm=1:o=v:ds=log:p=0.18:m=r[left_bar_src];[left_bar_src]scale={meterOutputWidth}:{previewHeight},format=yuv420p[left_bar];[right_meter_src]pan={rightMeterPan},showvolume=r={Math.Max(1, previewFrameRate)}:w={meterChannelWidth}:h={previewHeight}:f=0.92:b=2:t=0:v=1:dm=1:o=v:ds=log:p=0.18:m=r[right_bar_src];[right_bar_src]scale={meterOutputWidth}:{previewHeight},format=yuv420p[right_bar];[left_bar][preview_video][right_bar]hstack=inputs=3[preview]"
+    End Function
+
+    Private Function BuildRecordingVideoChain(recordingVideoFilter As String) As String
+        If String.IsNullOrWhiteSpace(recordingVideoFilter) Then
+            Return "[rec_src]null[rec_v];"
+        End If
+
+        Return $"[rec_src]{recordingVideoFilter.Trim()}[rec_v];"
     End Function
 
     Private Function BuildLivePreviewFilterGraph(previewWidth As Integer, previewFrameRate As Integer) As String

@@ -8,15 +8,36 @@ Friend Class PreviewFrameReader
 
     Private currentProcess As Process
     Private outputReadTask As Task
+    Private ReadOnly syncRoot As New Object()
 
     Public Event FrameReady(frame As Bitmap)
     Public Event LogReceived(message As String)
     Public Event Exited(exitCode As Integer)
 
+    Public Function GetProcessId() As Integer?
+        SyncLock syncRoot
+            If currentProcess Is Nothing Then
+                Return Nothing
+            End If
+
+            Try
+                If currentProcess.HasExited Then
+                    Return Nothing
+                End If
+
+                Return currentProcess.Id
+            Catch
+                Return Nothing
+            End Try
+        End SyncLock
+    End Function
+
     Public Sub Start(executablePath As String, arguments As String, workingDirectory As String)
-        If currentProcess IsNot Nothing Then
-            Throw New InvalidOperationException("Preview is already running.")
-        End If
+        SyncLock syncRoot
+            If currentProcess IsNot Nothing Then
+                Throw New InvalidOperationException("Preview is already running.")
+            End If
+        End SyncLock
 
         Dim startInfo As New ProcessStartInfo() With {
             .FileName = executablePath,
@@ -42,23 +63,31 @@ Friend Class PreviewFrameReader
             Throw New InvalidOperationException("Preview process could not be started.")
         End If
 
-        currentProcess = process
+        SyncLock syncRoot
+            currentProcess = process
+        End SyncLock
         RaiseEvent LogReceived("Preview started.")
         process.BeginErrorReadLine()
         outputReadTask = Task.Run(Sub() ReadFrames(process.StandardOutput.BaseStream))
     End Sub
 
     Public Sub [Stop]()
-        If currentProcess Is Nothing Then
+        Dim process As Process = Nothing
+
+        SyncLock syncRoot
+            process = currentProcess
+        End SyncLock
+
+        If process Is Nothing Then
             Return
         End If
 
         Try
-            If Not currentProcess.HasExited Then
-                currentProcess.StandardInput.WriteLine("q")
+            If Not process.HasExited Then
+                process.StandardInput.WriteLine("q")
 
-                If Not currentProcess.WaitForExit(2500) Then
-                    currentProcess.Kill(True)
+                If Not process.WaitForExit(2500) Then
+                    process.Kill(True)
                 End If
             End If
 
@@ -69,8 +98,8 @@ Friend Class PreviewFrameReader
             RaiseEvent LogReceived($"Preview stop failed: {ex.Message}")
 
             Try
-                If currentProcess IsNot Nothing AndAlso Not currentProcess.HasExited Then
-                    currentProcess.Kill(True)
+                If process IsNot Nothing AndAlso Not process.HasExited Then
+                    process.Kill(True)
                 End If
             Catch
             End Try
@@ -174,19 +203,32 @@ Friend Class PreviewFrameReader
         RemoveHandler exitedProcess.Exited, AddressOf OnExited
 
         exitedProcess.Dispose()
-        currentProcess = Nothing
+
+        SyncLock syncRoot
+            If Object.ReferenceEquals(currentProcess, exitedProcess) Then
+                currentProcess = Nothing
+            End If
+        End SyncLock
 
         RaiseEvent Exited(exitCode)
     End Sub
 
     Public Sub Dispose() Implements IDisposable.Dispose
-        If currentProcess IsNot Nothing Then
-            If Not currentProcess.HasExited Then
-                currentProcess.Kill(True)
-            End If
+        Dim process As Process = Nothing
 
-            currentProcess.Dispose()
+        SyncLock syncRoot
+            process = currentProcess
             currentProcess = Nothing
+        End SyncLock
+
+        If process Is Nothing Then
+            Return
         End If
+
+        If Not process.HasExited Then
+            process.Kill(True)
+        End If
+
+        process.Dispose()
     End Sub
 End Class

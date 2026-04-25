@@ -5,23 +5,40 @@ Imports System.Net
 Imports System.Net.Sockets
 Imports System.Text
 
-Partial Public Class Form1
+Partial Public Class RecorderControl
     Private NotInheritable Class OperatorSettings
         Public Property DeviceName As String
         Public Property ProfileName As String
         Public Property IntervalSeconds As Integer
     End Class
 
+    Private NotInheritable Class CpuSample
+        Public Property TimestampUtc As DateTime
+        Public Property ProcessorTime As TimeSpan
+    End Class
+
+    Public NotInheritable Class CpuUsageChangedEventArgs
+        Inherits EventArgs
+
+        Public Sub New(cpuUsagePercent As Double)
+            Me.CpuUsagePercent = cpuUsagePercent
+        End Sub
+
+        Public ReadOnly Property CpuUsagePercent As Double
+    End Class
+
     Private NotInheritable Class RecordingProfileDefinition
-        Public Sub New(displayName As String, containerExtension As String, outputOptions As String)
+        Public Sub New(displayName As String, containerExtension As String, outputOptions As String, Optional videoFilter As String = Nothing)
             Me.DisplayName = displayName
             Me.ContainerExtension = containerExtension
             Me.OutputOptions = outputOptions
+            Me.VideoFilter = videoFilter
         End Sub
 
         Public ReadOnly Property DisplayName As String
         Public ReadOnly Property ContainerExtension As String
         Public ReadOnly Property OutputOptions As String
+        Public ReadOnly Property VideoFilter As String
 
         Public ReadOnly Property SummaryText As String
             Get
@@ -40,14 +57,43 @@ Partial Public Class Form1
     Private Const PreviewCompositeWidth As Integer = PreviewWidth + (PreviewMeterWidth * 2)
     Private Const PreviewFrameRate As Integer = 10
     Private Const LogHeight As Integer = 56
+    Private Shared ReadOnly deviceReservationSync As New Object()
+    Private Shared ReadOnly reservedDevices As New Dictionary(Of String, WeakReference(Of RecorderControl))(StringComparer.OrdinalIgnoreCase)
 
     Private ReadOnly xdcamHd422Profile As New RecordingProfileDefinition(
         "XDCAM HD422",
         ".mxf",
         "-c:v mpeg2video -pix_fmt yuv422p -b:v 50000k -minrate 50000k -maxrate 50000k -bufsize 17825792 -rc_init_occupancy 17825792 -g 12 -bf 2 -flags +ildct+ilme -top 1 -qmin 1 -qmax 12 -dc 10 -intra_vlc 1 -color_primaries bt709 -color_trc bt709 -colorspace bt709 -c:a pcm_s16le -ar 48000 -ac 2"
     )
+    Private ReadOnly mp4HighResProfile As New RecordingProfileDefinition(
+        "MP4 High Quality",
+        ".mp4",
+        "-c:v libx264 -preset medium -crf 18 -pix_fmt yuv420p -profile:v high -movflags +faststart -c:a aac -b:a 192k -ar 48000 -ac 2",
+        "bwdif=mode=send_frame:parity=auto:deint=all,scale=1920:1080:flags=lanczos,fps=25"
+    )
+    Private ReadOnly mp4LowResProfile As New RecordingProfileDefinition(
+        "MP4 Low Bitrate",
+        ".mp4",
+        "-c:v libx264 -preset veryfast -crf 24 -pix_fmt yuv420p -profile:v high -movflags +faststart -c:a aac -b:a 128k -ar 48000 -ac 2",
+        "bwdif=mode=send_frame:parity=auto:deint=all,scale=1920:1080:flags=lanczos,fps=25"
+    )
+    Private ReadOnly proResProxyProfile As New RecordingProfileDefinition(
+        "ProRes Proxy (Small)",
+        ".mov",
+        "-c:v prores_ks -profile:v 0 -pix_fmt yuv422p10le -vendor apl0 -bits_per_mb 400 -c:a pcm_s16le -ar 48000"
+    )
+    Private ReadOnly proResLtProfile As New RecordingProfileDefinition(
+        "ProRes LT (Light)",
+        ".mov",
+        "-c:v prores_ks -profile:v 1 -pix_fmt yuv422p10le -vendor apl0 -bits_per_mb 1000 -c:a pcm_s16le -ar 48000"
+    )
+    Private ReadOnly proRes422Profile As New RecordingProfileDefinition(
+        "ProRes 422 (Medium)",
+        ".mov",
+        "-c:v prores_ks -profile:v 2 -pix_fmt yuv422p10le -vendor apl0 -bits_per_mb 1600 -c:a pcm_s16le -ar 48000"
+    )
     Private ReadOnly proRes422HqProfile As New RecordingProfileDefinition(
-        "ProRes 422 HQ",
+        "ProRes 422 HQ (High)",
         ".mov",
         "-c:v prores_ks -profile:v 3 -pix_fmt yuv422p10le -vendor apl0 -bits_per_mb 2400 -c:a pcm_s16le -ar 48000"
     )
@@ -65,6 +111,7 @@ Partial Public Class Form1
     Private ReadOnly logTextBox As New TextBox()
     Private ReadOnly recordingPreviewRetryTimer As New Timer() With {.Interval = 250}
     Private ReadOnly audioMonitorRetryTimer As New Timer() With {.Interval = 500}
+    Private ReadOnly cpuUsageTimer As New Timer() With {.Interval = 1000}
 
     Private WithEvents captureRunner As FfmpegProcessRunner
     Private WithEvents previewRunner As PreviewFrameReader
@@ -74,28 +121,98 @@ Partial Public Class Form1
     Private recordingPreviewPort As Integer
     Private suppressDeviceSelectionChanged As Boolean
     Private suppressSettingsSave As Boolean
+    Private cameraNameValue As String = "CAM1"
+    Private settingsKeyValue As String
     Private savedDeviceName As String = "DeckLink SDI 4K"
+    Private reservedDeviceName As String
+    Private speakerMonitorEnabledValue As Boolean
+    Private currentCpuUsagePercentValue As Double
+    Private lastCpuSamples As New Dictionary(Of Integer, CpuSample)()
+    Private hasLoadedOnce As Boolean
+    Private hasDisposedResources As Boolean
+
+    Public Event CpuUsageChanged As EventHandler(Of CpuUsageChangedEventArgs)
+
+    <Browsable(True), DesignerSerializationVisibility(DesignerSerializationVisibility.Visible), DefaultValue("CAM1")>
+    Public Property CameraName As String
+        Get
+            Return cameraNameValue
+        End Get
+        Set(value As String)
+            cameraNameValue = If(String.IsNullOrWhiteSpace(value), "CAM1", value.Trim())
+            UpdateStaticInfo()
+        End Set
+    End Property
+
+    <Browsable(True), DesignerSerializationVisibility(DesignerSerializationVisibility.Visible), DefaultValue("")>
+    Public Property SettingsKey As String
+        Get
+            Return settingsKeyValue
+        End Get
+        Set(value As String)
+            settingsKeyValue = If(value, String.Empty).Trim()
+        End Set
+    End Property
+
+    Public ReadOnly Property CurrentCpuUsagePercent As Double
+        Get
+            Return currentCpuUsagePercentValue
+        End Get
+    End Property
+
+    <Browsable(False), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)>
+    Public Property SpeakerMonitorEnabled As Boolean
+        Get
+            Return speakerMonitorEnabledValue
+        End Get
+        Set(value As Boolean)
+            If speakerMonitorEnabledValue = value Then
+                Return
+            End If
+
+            speakerMonitorEnabledValue = value
+
+            If Not hasLoadedOnce Then
+                Return
+            End If
+
+            StopAudioMonitorRetry()
+
+            If Not speakerMonitorEnabledValue Then
+                TearDownAudioMonitor(fast:=True)
+            End If
+
+            If captureRunner Is Nothing Then
+                StopIdlePreview("Updating audio listen...", fast:=True)
+                StartIdlePreview()
+                Return
+            End If
+
+            If speakerMonitorEnabledValue Then
+                AppendLog("Audio listen selection will apply to the next recording or preview restart.")
+            End If
+        End Set
+    End Property
 
     Public Sub New()
         InitializeComponent()
         InitializeOperatorUi()
         InitializeDeckLinkSelector()
-        LoadOperatorSettings()
         UpdateStaticInfo()
         UpdateUiState(False)
         AddHandler recordingPreviewRetryTimer.Tick, AddressOf OnRecordingPreviewRetryTick
         AddHandler audioMonitorRetryTimer.Tick, AddressOf OnAudioMonitorRetryTick
-        AddHandler Shown, AddressOf FormShown
+        AddHandler cpuUsageTimer.Tick, AddressOf OnCpuUsageTimerTick
+        AddHandler Load, AddressOf RecorderControl_Load
     End Sub
 
     Private Sub InitializeOperatorUi()
         SuspendLayout()
 
-        Text = "DeckLink Recorder"
-        ClientSize = New Size(470, 392)
-        FormBorderStyle = FormBorderStyle.FixedSingle
-        MaximizeBox = False
-        StartPosition = FormStartPosition.CenterScreen
+        AutoScaleMode = AutoScaleMode.Font
+        Margin = New Padding(0)
+        Size = New Size(470, 392)
+        MinimumSize = Size
 
         Dim rootLayout As New TableLayoutPanel() With {
             .Dock = DockStyle.Fill,
@@ -164,14 +281,6 @@ Partial Public Class Form1
             .Margin = New Padding(12, 6, 6, 6)
         }
 
-        intervalUpDown.Minimum = 1
-        intervalUpDown.Maximum = 3600
-        intervalUpDown.Value = 10
-        intervalUpDown.Width = 58
-        intervalUpDown.Anchor = AnchorStyles.Left
-        intervalUpDown.Margin = New Padding(0, 3, 0, 3)
-        AddHandler intervalUpDown.ValueChanged, AddressOf OnIntervalValueChanged
-
         Dim profileLabel As New Label() With {
             .AutoSize = True,
             .Text = "Profile",
@@ -180,12 +289,29 @@ Partial Public Class Form1
         }
 
         profileComboBox.DropDownStyle = ComboBoxStyle.DropDownList
-        profileComboBox.Width = 145
+        profileComboBox.Width = 136
+        profileComboBox.DropDownWidth = 160
         profileComboBox.Anchor = AnchorStyles.Left
         profileComboBox.Margin = New Padding(0, 3, 0, 3)
-        profileComboBox.Items.AddRange(New Object() {xdcamHd422Profile, proRes422HqProfile})
+        profileComboBox.Items.AddRange(New Object() {
+            xdcamHd422Profile,
+            mp4HighResProfile,
+            mp4LowResProfile,
+            proResProxyProfile,
+            proResLtProfile,
+            proRes422Profile,
+            proRes422HqProfile
+        })
         profileComboBox.SelectedItem = xdcamHd422Profile
         AddHandler profileComboBox.SelectedIndexChanged, AddressOf OnProfileChanged
+
+        intervalUpDown.Minimum = 1
+        intervalUpDown.Maximum = 3600
+        intervalUpDown.Value = 10
+        intervalUpDown.Width = 58
+        intervalUpDown.Anchor = AnchorStyles.Left
+        intervalUpDown.Margin = New Padding(0, 3, 0, 3)
+        AddHandler intervalUpDown.ValueChanged, AddressOf OnIntervalValueChanged
 
         Dim deviceRow As New TableLayoutPanel() With {
             .AutoSize = True,
@@ -324,15 +450,30 @@ Partial Public Class Form1
         Return logPanel
     End Function
 
-    Private Sub FormShown(sender As Object, e As EventArgs)
+    Private Sub RecorderControl_Load(sender As Object, e As EventArgs)
+        If hasLoadedOnce Then
+            Return
+        End If
+
+        hasLoadedOnce = True
+
+        If Not File.Exists(GetSettingsFilePath()) Then
+            savedDeviceName = GetPreferredDefaultDeviceName()
+        End If
+
+        LoadOperatorSettings()
+        InitializeDeckLinkSelector()
         LoadDeckLinkDevices()
+        EnsureExclusiveDeviceSelection(saveIfSelectionChanged:=True)
+        UpdateStaticInfo()
         StartIdlePreview()
+        cpuUsageTimer.Start()
     End Sub
 
     Private Sub UpdateStaticInfo()
         Dim options = CreateDefaultOptions()
 
-        deviceValueLabel.Text = $"{options.DeviceName} | 1080i50 | {options.ClipDurationSeconds} s {GetSelectedRecordingProfile().SummaryText} | L/R dBFS"
+        deviceValueLabel.Text = $"{GetRecordingPrefix()} | {options.DeviceName} | 1080i50 | {options.ClipDurationSeconds} s {GetSelectedRecordingProfile().SummaryText} | L/R dBFS"
     End Sub
 
     Private Function CreateDefaultOptions() As RecorderOptions
@@ -345,9 +486,10 @@ Partial Public Class Form1
             .AudioInput = "embedded",
             .Channels = 2,
             .OutputFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), "FFmpegRecorder"),
-            .FilePrefix = "clip",
+            .FilePrefix = GetRecordingPrefix(),
             .ClipDurationSeconds = GetSelectedClipDurationSeconds(),
             .ContainerExtension = selectedProfile.ContainerExtension,
+            .VideoFilter = selectedProfile.VideoFilter,
             .OutputOptions = selectedProfile.OutputOptions
         }
     End Function
@@ -356,9 +498,40 @@ Partial Public Class Form1
         Return If(TryCast(profileComboBox.SelectedItem, RecordingProfileDefinition), xdcamHd422Profile)
     End Function
 
+    Private Function GetPreferredDefaultDeviceName() As String
+        Select Case GetRecordingPrefix().ToUpperInvariant()
+            Case "CAM2"
+                Return "DeckLink Duo (1)"
+            Case "CAM3"
+                Return "DeckLink Duo (2)"
+            Case "CAM4"
+                Return "DeckLink Duo (3)"
+            Case Else
+                Return "DeckLink SDI 4K"
+        End Select
+    End Function
+
+    Private Function GetRecordingPrefix() As String
+        Return SanitizeFileToken(CameraName, "CAM1")
+    End Function
+
+    Private Function GetSettingsStorageKey() As String
+        Return SanitizeFileToken(If(String.IsNullOrWhiteSpace(SettingsKey), CameraName, SettingsKey), "CAM1")
+    End Function
+
+    Private Shared Function SanitizeFileToken(value As String, fallbackValue As String) As String
+        Dim safeValue = If(String.IsNullOrWhiteSpace(value), fallbackValue, value.Trim())
+
+        For Each invalidCharacter In Path.GetInvalidFileNameChars()
+            safeValue = safeValue.Replace(invalidCharacter, "_"c)
+        Next
+
+        Return If(String.IsNullOrWhiteSpace(safeValue), fallbackValue, safeValue)
+    End Function
+
     Private Function GetSettingsFilePath() As String
         Dim settingsDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "FfmpegRecorder")
-        Return Path.Combine(settingsDirectory, "settings.txt")
+        Return Path.Combine(settingsDirectory, $"settings-{GetSettingsStorageKey()}.txt")
     End Function
 
     Private Sub LoadOperatorSettings()
@@ -369,7 +542,7 @@ Partial Public Class Form1
         End If
 
         Dim loadedSettings As New OperatorSettings With {
-            .DeviceName = "DeckLink SDI 4K",
+            .DeviceName = GetPreferredDefaultDeviceName(),
             .ProfileName = xdcamHd422Profile.DisplayName,
             .IntervalSeconds = 10
         }
@@ -413,7 +586,7 @@ Partial Public Class Form1
         suppressSettingsSave = True
 
         Try
-            savedDeviceName = If(String.IsNullOrWhiteSpace(settings.DeviceName), "DeckLink SDI 4K", settings.DeviceName)
+            savedDeviceName = If(String.IsNullOrWhiteSpace(settings.DeviceName), GetPreferredDefaultDeviceName(), settings.DeviceName)
 
             Dim clampedInterval = Math.Max(CInt(intervalUpDown.Minimum), Math.Min(CInt(intervalUpDown.Maximum), settings.IntervalSeconds))
             intervalUpDown.Value = clampedInterval
@@ -474,7 +647,7 @@ Partial Public Class Form1
             Return
         End If
 
-        Dim preferredDeviceName = "DeckLink SDI 4K"
+        Dim preferredDeviceName = GetPreferredDefaultDeviceName()
         Dim selectedDeviceName = savedDeviceName
 
         suppressDeviceSelectionChanged = True
@@ -500,6 +673,163 @@ Partial Public Class Form1
         End Try
 
         UpdateStaticInfo()
+    End Sub
+
+    Private Function EnsureExclusiveDeviceSelection(Optional saveIfSelectionChanged As Boolean = False) As Boolean
+        Dim selectedDeviceName = GetSelectedDeviceName()
+
+        If TryReserveSelectedDevice(selectedDeviceName) Then
+            savedDeviceName = selectedDeviceName
+            Return True
+        End If
+
+        Dim replacementDeviceName = FindAvailableDeviceName(selectedDeviceName)
+
+        If String.IsNullOrWhiteSpace(replacementDeviceName) Then
+            AppendLog($"No free DeckLink input is available for {GetRecordingPrefix()}.")
+            Return False
+        End If
+
+        suppressDeviceSelectionChanged = True
+
+        Try
+            deviceComboBox.SelectedItem = replacementDeviceName
+        Finally
+            suppressDeviceSelectionChanged = False
+        End Try
+
+        savedDeviceName = replacementDeviceName
+        TryReserveSelectedDevice(replacementDeviceName)
+        UpdateStaticInfo()
+
+        If saveIfSelectionChanged Then
+            SaveOperatorSettings()
+        End If
+
+        AppendLog($"{selectedDeviceName} is already assigned to another camera panel. Switched to {replacementDeviceName}.")
+        Return True
+    End Function
+
+    Private Function FindAvailableDeviceName(conflictingDeviceName As String) As String
+        Dim candidateDeviceNames As New List(Of String)()
+
+        AddCandidateDeviceName(candidateDeviceNames, GetPreferredDefaultDeviceName())
+        AddCandidateDeviceName(candidateDeviceNames, savedDeviceName)
+
+        For Each item As Object In deviceComboBox.Items
+            AddCandidateDeviceName(candidateDeviceNames, TryCast(item, String))
+        Next
+
+        For Each candidateDeviceName In candidateDeviceNames
+            If String.Equals(candidateDeviceName, conflictingDeviceName, StringComparison.OrdinalIgnoreCase) Then
+                Continue For
+            End If
+
+            If IsDeviceAvailable(candidateDeviceName) Then
+                Return candidateDeviceName
+            End If
+        Next
+
+        Return Nothing
+    End Function
+
+    Private Sub AddCandidateDeviceName(candidateDeviceNames As IList(Of String), candidateDeviceName As String)
+        If String.IsNullOrWhiteSpace(candidateDeviceName) Then
+            Return
+        End If
+
+        For Each existingDeviceName In candidateDeviceNames
+            If String.Equals(existingDeviceName, candidateDeviceName, StringComparison.OrdinalIgnoreCase) Then
+                Return
+            End If
+        Next
+
+        candidateDeviceNames.Add(candidateDeviceName)
+    End Sub
+
+    Private Function TryReserveSelectedDevice(deviceName As String) As Boolean
+        If String.IsNullOrWhiteSpace(deviceName) Then
+            Return False
+        End If
+
+        SyncLock deviceReservationSync
+            CleanupReservedDevices()
+
+            Dim existingReservation As WeakReference(Of RecorderControl) = Nothing
+
+            If reservedDevices.TryGetValue(deviceName, existingReservation) Then
+                Dim owner As RecorderControl = Nothing
+
+                If existingReservation.TryGetTarget(owner) AndAlso owner IsNot Nothing AndAlso Not Object.ReferenceEquals(owner, Me) Then
+                    Return False
+                End If
+            End If
+
+            ReleaseReservedDeviceInternal()
+            reservedDevices(deviceName) = New WeakReference(Of RecorderControl)(Me)
+            reservedDeviceName = deviceName
+            Return True
+        End SyncLock
+    End Function
+
+    Private Function IsDeviceAvailable(deviceName As String) As Boolean
+        If String.IsNullOrWhiteSpace(deviceName) Then
+            Return False
+        End If
+
+        SyncLock deviceReservationSync
+            CleanupReservedDevices()
+
+            Dim existingReservation As WeakReference(Of RecorderControl) = Nothing
+
+            If reservedDevices.TryGetValue(deviceName, existingReservation) Then
+                Dim owner As RecorderControl = Nothing
+
+                Return Not existingReservation.TryGetTarget(owner) OrElse owner Is Nothing OrElse Object.ReferenceEquals(owner, Me)
+            End If
+
+            Return True
+        End SyncLock
+    End Function
+
+    Private Shared Sub CleanupReservedDevices()
+        Dim deviceNamesToRemove As New List(Of String)()
+
+        For Each entry In reservedDevices
+            Dim owner As RecorderControl = Nothing
+
+            If Not entry.Value.TryGetTarget(owner) OrElse owner Is Nothing Then
+                deviceNamesToRemove.Add(entry.Key)
+            End If
+        Next
+
+        For Each deviceNameToRemove In deviceNamesToRemove
+            reservedDevices.Remove(deviceNameToRemove)
+        Next
+    End Sub
+
+    Private Sub ReleaseReservedDevice()
+        SyncLock deviceReservationSync
+            ReleaseReservedDeviceInternal()
+        End SyncLock
+    End Sub
+
+    Private Sub ReleaseReservedDeviceInternal()
+        If String.IsNullOrWhiteSpace(reservedDeviceName) Then
+            Return
+        End If
+
+        Dim existingReservation As WeakReference(Of RecorderControl) = Nothing
+
+        If reservedDevices.TryGetValue(reservedDeviceName, existingReservation) Then
+            Dim owner As RecorderControl = Nothing
+
+            If Not existingReservation.TryGetTarget(owner) OrElse owner Is Nothing OrElse Object.ReferenceEquals(owner, Me) Then
+                reservedDevices.Remove(reservedDeviceName)
+            End If
+        End If
+
+        reservedDeviceName = Nothing
     End Sub
 
     Private Function GetDeckLinkDeviceNames(ffmpegPath As String) As List(Of String)
@@ -568,7 +898,7 @@ Partial Public Class Form1
             Return selectedDevice
         End If
 
-        Return If(String.IsNullOrWhiteSpace(savedDeviceName), "DeckLink SDI 4K", savedDeviceName)
+        Return If(String.IsNullOrWhiteSpace(savedDeviceName), GetPreferredDefaultDeviceName(), savedDeviceName)
     End Function
 
     Private Function GetSelectedClipDurationSeconds() As Integer
@@ -591,6 +921,11 @@ Partial Public Class Form1
 
     Private Sub OnDeviceChanged(sender As Object, e As EventArgs)
         If suppressDeviceSelectionChanged Then
+            Return
+        End If
+
+        If Not EnsureExclusiveDeviceSelection(saveIfSelectionChanged:=True) Then
+            UpdateStaticInfo()
             Return
         End If
 
@@ -633,7 +968,7 @@ Partial Public Class Form1
         End If
 
         Dim options = CreateDefaultOptions()
-        Dim hasAudioMonitor = Not String.IsNullOrWhiteSpace(ResolveFfplayPath(options.FfmpegPath))
+        Dim hasAudioMonitor = speakerMonitorEnabledValue AndAlso Not String.IsNullOrWhiteSpace(ResolveFfplayPath(options.FfmpegPath))
 
         If hasAudioMonitor AndAlso audioMonitorPort <= 0 Then
             audioMonitorPort = GetAvailableTcpPort()
@@ -753,7 +1088,7 @@ Partial Public Class Form1
 
         Dim options = CreateDefaultOptions()
         Dim previewPort = GetAvailableTcpPort()
-        Dim hasAudioMonitor = Not String.IsNullOrWhiteSpace(ResolveFfplayPath(options.FfmpegPath))
+        Dim hasAudioMonitor = speakerMonitorEnabledValue AndAlso Not String.IsNullOrWhiteSpace(ResolveFfplayPath(options.FfmpegPath))
 
         If hasAudioMonitor Then
             TearDownAudioMonitor(fast:=True)
@@ -766,8 +1101,7 @@ Partial Public Class Form1
         Directory.CreateDirectory(options.OutputFolder)
         StopIdlePreview("Switching to recording preview...", fast:=True)
 
-        Dim sessionStamp = DateTime.Now.ToString("yyyyMMdd_HHmmss")
-        Dim outputPattern = options.BuildOutputPattern(sessionStamp)
+        Dim outputPattern = options.BuildOutputPattern()
         Dim arguments = options.BuildRecordingWithPreviewArguments(outputPattern, previewPort, If(hasAudioMonitor, audioMonitorPort, 0), PreviewWidth, PreviewFrameRate)
 
         logTextBox.Clear()
@@ -836,6 +1170,65 @@ Partial Public Class Form1
         End If
 
         logTextBox.AppendText($"[{DateTime.Now:HH:mm:ss}] {message}{Environment.NewLine}")
+    End Sub
+
+    Private Sub OnCpuUsageTimerTick(sender As Object, e As EventArgs)
+        UpdateCpuUsageDisplay()
+    End Sub
+
+    Private Sub UpdateCpuUsageDisplay()
+        Dim activeProcessIds = GetActiveProcessIds()
+        Dim activeSamples As New Dictionary(Of Integer, CpuSample)()
+        Dim totalCpuPercent = 0.0
+
+        For Each processId In activeProcessIds
+            Try
+                Using runningProcess As Process = Process.GetProcessById(processId)
+                    If runningProcess.HasExited Then
+                        Continue For
+                    End If
+
+                    Dim currentSample As New CpuSample With {
+                        .TimestampUtc = DateTime.UtcNow,
+                        .ProcessorTime = runningProcess.TotalProcessorTime
+                    }
+
+                    activeSamples(processId) = currentSample
+
+                    Dim previousSample As CpuSample = Nothing
+
+                    If lastCpuSamples.TryGetValue(processId, previousSample) Then
+                        Dim elapsedWallClock = (currentSample.TimestampUtc - previousSample.TimestampUtc).TotalMilliseconds
+                        Dim elapsedCpu = (currentSample.ProcessorTime - previousSample.ProcessorTime).TotalMilliseconds
+
+                        If elapsedWallClock > 0 Then
+                            totalCpuPercent += Math.Max(0.0, (elapsedCpu / (elapsedWallClock * Environment.ProcessorCount)) * 100.0)
+                        End If
+                    End If
+                End Using
+            Catch
+            End Try
+        Next
+
+        lastCpuSamples = activeSamples
+        currentCpuUsagePercentValue = totalCpuPercent
+        RaiseEvent CpuUsageChanged(Me, New CpuUsageChangedEventArgs(currentCpuUsagePercentValue))
+    End Sub
+
+    Private Function GetActiveProcessIds() As IEnumerable(Of Integer)
+        Dim processIds As New HashSet(Of Integer)()
+
+        AddActiveProcessId(processIds, captureRunner?.GetProcessId())
+        AddActiveProcessId(processIds, previewRunner?.GetProcessId())
+        AddActiveProcessId(processIds, audioMonitorRunner?.GetProcessId())
+
+        Return processIds
+    End Function
+
+    Private Sub AddActiveProcessId(processIds As ISet(Of Integer), processId As Integer?)
+        If processId.HasValue AndAlso processId.Value > 0 Then
+            processIds.Add(processId.Value)
+        End If
     End Sub
 
     Private Function GetFriendlyProcessError(ex As Exception) As String
@@ -911,7 +1304,7 @@ Partial Public Class Form1
     End Sub
 
     Private Function ShouldRetryAudioMonitor() As Boolean
-        Return audioMonitorPort > 0 AndAlso (previewRunner IsNot Nothing OrElse captureRunner IsNot Nothing)
+        Return speakerMonitorEnabledValue AndAlso audioMonitorPort > 0 AndAlso (previewRunner IsNot Nothing OrElse captureRunner IsNot Nothing)
     End Function
 
     Private Sub ScheduleAudioMonitorRetry()
@@ -1105,8 +1498,15 @@ Partial Public Class Form1
         StartIdlePreview()
     End Sub
 
-    Protected Overrides Sub OnFormClosing(e As FormClosingEventArgs)
+    Private Sub DisposeRecorderResources()
+        If hasDisposedResources Then
+            Return
+        End If
+
+        hasDisposedResources = True
+        cpuUsageTimer.Stop()
         SaveOperatorSettings()
+        ReleaseReservedDevice()
         StopRecordingPreviewRetry()
         TearDownRecordingPreview()
         TearDownAudioMonitor()
@@ -1127,7 +1527,5 @@ Partial Public Class Form1
             previewPictureBox.Image.Dispose()
             previewPictureBox.Image = Nothing
         End If
-
-        MyBase.OnFormClosing(e)
     End Sub
 End Class

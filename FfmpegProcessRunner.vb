@@ -9,6 +9,24 @@ Friend Class FfmpegProcessRunner
     Public Event LogReceived(message As String)
     Public Event Exited(exitCode As Integer)
 
+    Public Function GetProcessId() As Integer?
+        SyncLock syncRoot
+            If currentProcess Is Nothing Then
+                Return Nothing
+            End If
+
+            Try
+                If currentProcess.HasExited Then
+                    Return Nothing
+                End If
+
+                Return currentProcess.Id
+            Catch
+                Return Nothing
+            End Try
+        End SyncLock
+    End Function
+
     Public Sub Start(executablePath As String, arguments As String, workingDirectory As String)
         SyncLock syncRoot
             If currentProcess IsNot Nothing Then
