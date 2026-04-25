@@ -15,8 +15,18 @@ Partial Class RecorderHostForm
 
     Private components As System.ComponentModel.IContainer
     Private mainLayout As TableLayoutPanel
+    Private commonGroupBox As GroupBox
     Private commonPanel As FlowLayoutPanel
     Private commonTitleLabel As Label
+    Private profileLabel As Label
+    Private profileComboBox As ComboBox
+    Private intervalLabel As Label
+    Private intervalUpDown As NumericUpDown
+    Private recordAllButton As Button
+    Private stopAllButton As Button
+    Private openRecordingsButton As Button
+    Private deleteAllButton As Button
+    Private audioListenPanel As FlowLayoutPanel
     Private audioListenLabel As Label
     Private audioListenComboBox As ComboBox
     Private cam1CpuLabel As Label
@@ -43,8 +53,18 @@ Partial Class RecorderHostForm
     Private Sub InitializeComponent()
         components = New System.ComponentModel.Container()
         mainLayout = New TableLayoutPanel()
+        commonGroupBox = New GroupBox()
         commonPanel = New FlowLayoutPanel()
         commonTitleLabel = New Label()
+        profileLabel = New Label()
+        profileComboBox = New ComboBox()
+        intervalLabel = New Label()
+        intervalUpDown = New NumericUpDown()
+        recordAllButton = New Button()
+        stopAllButton = New Button()
+        openRecordingsButton = New Button()
+        deleteAllButton = New Button()
+        audioListenPanel = New FlowLayoutPanel()
         audioListenLabel = New Label()
         audioListenComboBox = New ComboBox()
         cam1CpuLabel = New Label()
@@ -66,7 +86,9 @@ Partial Class RecorderHostForm
         thirdRecorderControl = New RecorderControl()
         cam4GroupBox = New GroupBox()
         fourthRecorderControl = New RecorderControl()
+        CType(intervalUpDown, System.ComponentModel.ISupportInitialize).BeginInit()
         mainLayout.SuspendLayout()
+        commonGroupBox.SuspendLayout()
         commonPanel.SuspendLayout()
         cameraGrid.SuspendLayout()
         cam1GroupBox.SuspendLayout()
@@ -75,7 +97,7 @@ Partial Class RecorderHostForm
         cam4GroupBox.SuspendLayout()
         SuspendLayout()
         AutoScaleMode = AutoScaleMode.Font
-        ClientSize = New Size(980, 888)
+        ClientSize = New Size(1040, 1020)
         FormBorderStyle = FormBorderStyle.FixedSingle
         MaximizeBox = False
         MinimizeBox = False
@@ -84,7 +106,7 @@ Partial Class RecorderHostForm
         Text = "DeckLink Recorder"
         mainLayout.ColumnCount = 1
         mainLayout.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 100.0F))
-        mainLayout.Controls.Add(commonPanel, 0, 0)
+        mainLayout.Controls.Add(commonGroupBox, 0, 0)
         mainLayout.Controls.Add(cameraGrid, 0, 1)
         mainLayout.Dock = DockStyle.Fill
         mainLayout.Location = New Point(0, 0)
@@ -93,11 +115,28 @@ Partial Class RecorderHostForm
         mainLayout.RowCount = 2
         mainLayout.RowStyles.Add(New RowStyle(SizeType.AutoSize))
         mainLayout.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
-        mainLayout.Size = New Size(980, 888)
+        mainLayout.Size = New Size(1040, 1020)
+        commonGroupBox.Controls.Add(commonPanel)
+        commonGroupBox.Dock = DockStyle.Fill
+        commonGroupBox.Font = New Font("Segoe UI", 9.0F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
+        commonGroupBox.Location = New Point(8, 8)
+        commonGroupBox.Margin = New Padding(8, 8, 8, 6)
+        commonGroupBox.Name = "commonGroupBox"
+        commonGroupBox.Padding = New Padding(8, 6, 8, 8)
+        commonGroupBox.Size = New Size(1024, 103)
+        commonGroupBox.TabStop = False
+        commonGroupBox.Text = "COMMON"
         commonPanel.AutoSize = True
         commonPanel.Controls.Add(commonTitleLabel)
-        commonPanel.Controls.Add(audioListenLabel)
-        commonPanel.Controls.Add(audioListenComboBox)
+        commonPanel.Controls.Add(profileLabel)
+        commonPanel.Controls.Add(profileComboBox)
+        commonPanel.Controls.Add(intervalLabel)
+        commonPanel.Controls.Add(intervalUpDown)
+        commonPanel.Controls.Add(recordAllButton)
+        commonPanel.Controls.Add(stopAllButton)
+        commonPanel.Controls.Add(openRecordingsButton)
+        commonPanel.Controls.Add(deleteAllButton)
+        commonPanel.Controls.Add(audioListenPanel)
         commonPanel.Controls.Add(cam1CpuLabel)
         commonPanel.Controls.Add(cam1CpuValueLabel)
         commonPanel.Controls.Add(cam2CpuLabel)
@@ -110,92 +149,170 @@ Partial Class RecorderHostForm
         commonPanel.Controls.Add(totalCpuValueLabel)
         commonPanel.Dock = DockStyle.Fill
         commonPanel.FlowDirection = FlowDirection.LeftToRight
-        commonPanel.Location = New Point(0, 0)
+        commonPanel.Location = New Point(8, 22)
         commonPanel.Margin = New Padding(0)
         commonPanel.Name = "commonPanel"
-        commonPanel.Padding = New Padding(8, 8, 8, 4)
-        commonPanel.Size = New Size(980, 35)
-        commonPanel.WrapContents = False
+        commonPanel.Padding = New Padding(6, 4, 6, 2)
+        commonPanel.Size = New Size(1008, 73)
+        commonPanel.WrapContents = True
         commonTitleLabel.AutoSize = True
         commonTitleLabel.Font = New Font("Segoe UI", 9.0F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
-        commonTitleLabel.Location = New Point(8, 11)
-        commonTitleLabel.Margin = New Padding(0, 3, 14, 0)
+        commonTitleLabel.Location = New Point(6, 7)
+        commonTitleLabel.Margin = New Padding(0, 3, 16, 0)
         commonTitleLabel.Name = "commonTitleLabel"
-        commonTitleLabel.Size = New Size(56, 15)
-        commonTitleLabel.Text = "Common"
+        commonTitleLabel.Size = New Size(60, 15)
+        commonTitleLabel.Text = "Controls:"
+        profileLabel.AutoSize = True
+        profileLabel.Font = New Font("Segoe UI", 9.0F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
+        profileLabel.Location = New Point(82, 7)
+        profileLabel.Margin = New Padding(0, 3, 6, 0)
+        profileLabel.Name = "profileLabel"
+        profileLabel.Size = New Size(39, 15)
+        profileLabel.Text = "Profile"
+        profileComboBox.DropDownStyle = ComboBoxStyle.DropDownList
+        profileComboBox.Font = New Font("Segoe UI", 9.0F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
+        profileComboBox.FormattingEnabled = True
+        profileComboBox.Location = New Point(127, 4)
+        profileComboBox.Margin = New Padding(0, 0, 18, 0)
+        profileComboBox.Name = "profileComboBox"
+        profileComboBox.Size = New Size(176, 23)
+        intervalLabel.AutoSize = True
+        intervalLabel.Font = New Font("Segoe UI", 9.0F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
+        intervalLabel.Location = New Point(321, 7)
+        intervalLabel.Margin = New Padding(0, 3, 6, 0)
+        intervalLabel.Name = "intervalLabel"
+        intervalLabel.Size = New Size(61, 15)
+        intervalLabel.Text = "Interval (s)"
+        intervalUpDown.Font = New Font("Segoe UI", 9.0F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
+        intervalUpDown.Location = New Point(388, 4)
+        intervalUpDown.Margin = New Padding(0, 0, 18, 0)
+        intervalUpDown.Maximum = New Decimal(New Integer() {3600, 0, 0, 0})
+        intervalUpDown.Minimum = New Decimal(New Integer() {1, 0, 0, 0})
+        intervalUpDown.Name = "intervalUpDown"
+        intervalUpDown.Size = New Size(62, 23)
+        intervalUpDown.Value = New Decimal(New Integer() {10, 0, 0, 0})
+        recordAllButton.Font = New Font("Segoe UI", 9.0F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
+        recordAllButton.Location = New Point(468, 4)
+        recordAllButton.Margin = New Padding(0, 0, 8, 0)
+        recordAllButton.Name = "recordAllButton"
+        recordAllButton.Size = New Size(84, 24)
+        recordAllButton.Text = "Record All"
+        recordAllButton.UseVisualStyleBackColor = True
+        stopAllButton.Font = New Font("Segoe UI", 9.0F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
+        stopAllButton.Location = New Point(560, 4)
+        stopAllButton.Margin = New Padding(0, 0, 8, 0)
+        stopAllButton.Name = "stopAllButton"
+        stopAllButton.Size = New Size(72, 24)
+        stopAllButton.Text = "Stop All"
+        stopAllButton.UseVisualStyleBackColor = True
+        openRecordingsButton.Font = New Font("Segoe UI", 9.0F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
+        openRecordingsButton.Location = New Point(640, 4)
+        openRecordingsButton.Margin = New Padding(0, 0, 8, 0)
+        openRecordingsButton.Name = "openRecordingsButton"
+        openRecordingsButton.Size = New Size(112, 24)
+        openRecordingsButton.Text = "Open Recordings"
+        openRecordingsButton.UseVisualStyleBackColor = True
+        deleteAllButton.Font = New Font("Segoe UI", 9.0F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
+        deleteAllButton.Location = New Point(760, 4)
+        deleteAllButton.Margin = New Padding(0, 0, 18, 0)
+        deleteAllButton.Name = "deleteAllButton"
+        deleteAllButton.Size = New Size(76, 24)
+        deleteAllButton.Text = "Delete All"
+        deleteAllButton.UseVisualStyleBackColor = True
+        audioListenPanel.AutoSize = True
+        audioListenPanel.Controls.Add(audioListenLabel)
+        audioListenPanel.Controls.Add(audioListenComboBox)
+        audioListenPanel.FlowDirection = FlowDirection.LeftToRight
+        audioListenPanel.Location = New Point(854, 4)
+        audioListenPanel.Margin = New Padding(0, 0, 18, 0)
+        audioListenPanel.Name = "audioListenPanel"
+        audioListenPanel.Size = New Size(189, 23)
+        audioListenPanel.WrapContents = False
         audioListenLabel.AutoSize = True
-        audioListenLabel.Location = New Point(78, 11)
+        audioListenLabel.Font = New Font("Segoe UI", 9.0F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
+        audioListenLabel.Location = New Point(0, 3)
         audioListenLabel.Margin = New Padding(0, 3, 6, 0)
         audioListenLabel.Name = "audioListenLabel"
         audioListenLabel.Size = New Size(71, 15)
         audioListenLabel.Text = "Listen Audio"
         audioListenComboBox.DropDownStyle = ComboBoxStyle.DropDownList
+        audioListenComboBox.Font = New Font("Segoe UI", 9.0F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
         audioListenComboBox.FormattingEnabled = True
-        audioListenComboBox.Location = New Point(155, 8)
-        audioListenComboBox.Margin = New Padding(0, 0, 18, 0)
+        audioListenComboBox.Location = New Point(77, 0)
+        audioListenComboBox.Margin = New Padding(0)
         audioListenComboBox.Name = "audioListenComboBox"
         audioListenComboBox.Size = New Size(104, 23)
         cam1CpuLabel.AutoSize = True
-        cam1CpuLabel.Location = New Point(277, 11)
+        cam1CpuLabel.Font = New Font("Segoe UI", 9.0F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
+        cam1CpuLabel.Location = New Point(205, 30)
         cam1CpuLabel.Margin = New Padding(0, 3, 6, 0)
         cam1CpuLabel.Name = "cam1CpuLabel"
         cam1CpuLabel.Size = New Size(62, 15)
         cam1CpuLabel.Text = "CAM1 CPU"
         cam1CpuValueLabel.AutoSize = True
+        cam1CpuValueLabel.Font = New Font("Segoe UI", 9.0F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
         cam1CpuValueLabel.ForeColor = Color.DimGray
-        cam1CpuValueLabel.Location = New Point(345, 11)
+        cam1CpuValueLabel.Location = New Point(273, 30)
         cam1CpuValueLabel.Margin = New Padding(0, 3, 18, 0)
         cam1CpuValueLabel.Name = "cam1CpuValueLabel"
         cam1CpuValueLabel.Size = New Size(32, 15)
         cam1CpuValueLabel.Text = "0.0%"
         cam2CpuLabel.AutoSize = True
-        cam2CpuLabel.Location = New Point(395, 11)
+        cam2CpuLabel.Font = New Font("Segoe UI", 9.0F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
+        cam2CpuLabel.Location = New Point(323, 30)
         cam2CpuLabel.Margin = New Padding(0, 3, 6, 0)
         cam2CpuLabel.Name = "cam2CpuLabel"
         cam2CpuLabel.Size = New Size(62, 15)
         cam2CpuLabel.Text = "CAM2 CPU"
         cam2CpuValueLabel.AutoSize = True
+        cam2CpuValueLabel.Font = New Font("Segoe UI", 9.0F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
         cam2CpuValueLabel.ForeColor = Color.DimGray
-        cam2CpuValueLabel.Location = New Point(463, 11)
+        cam2CpuValueLabel.Location = New Point(391, 30)
         cam2CpuValueLabel.Margin = New Padding(0, 3, 18, 0)
         cam2CpuValueLabel.Name = "cam2CpuValueLabel"
         cam2CpuValueLabel.Size = New Size(32, 15)
         cam2CpuValueLabel.Text = "0.0%"
         cam3CpuLabel.AutoSize = True
-        cam3CpuLabel.Location = New Point(513, 11)
+        cam3CpuLabel.Font = New Font("Segoe UI", 9.0F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
+        cam3CpuLabel.Location = New Point(441, 30)
         cam3CpuLabel.Margin = New Padding(0, 3, 6, 0)
         cam3CpuLabel.Name = "cam3CpuLabel"
         cam3CpuLabel.Size = New Size(62, 15)
         cam3CpuLabel.Text = "CAM3 CPU"
         cam3CpuValueLabel.AutoSize = True
+        cam3CpuValueLabel.Font = New Font("Segoe UI", 9.0F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
         cam3CpuValueLabel.ForeColor = Color.DimGray
-        cam3CpuValueLabel.Location = New Point(581, 11)
+        cam3CpuValueLabel.Location = New Point(509, 30)
         cam3CpuValueLabel.Margin = New Padding(0, 3, 18, 0)
         cam3CpuValueLabel.Name = "cam3CpuValueLabel"
         cam3CpuValueLabel.Size = New Size(32, 15)
         cam3CpuValueLabel.Text = "0.0%"
         cam4CpuLabel.AutoSize = True
-        cam4CpuLabel.Location = New Point(631, 11)
+        cam4CpuLabel.Font = New Font("Segoe UI", 9.0F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
+        cam4CpuLabel.Location = New Point(559, 30)
         cam4CpuLabel.Margin = New Padding(0, 3, 6, 0)
         cam4CpuLabel.Name = "cam4CpuLabel"
         cam4CpuLabel.Size = New Size(62, 15)
         cam4CpuLabel.Text = "CAM4 CPU"
         cam4CpuValueLabel.AutoSize = True
+        cam4CpuValueLabel.Font = New Font("Segoe UI", 9.0F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
         cam4CpuValueLabel.ForeColor = Color.DimGray
-        cam4CpuValueLabel.Location = New Point(699, 11)
+        cam4CpuValueLabel.Location = New Point(627, 30)
         cam4CpuValueLabel.Margin = New Padding(0, 3, 18, 0)
         cam4CpuValueLabel.Name = "cam4CpuValueLabel"
         cam4CpuValueLabel.Size = New Size(32, 15)
         cam4CpuValueLabel.Text = "0.0%"
         totalCpuLabel.AutoSize = True
-        totalCpuLabel.Location = New Point(749, 11)
+        totalCpuLabel.Font = New Font("Segoe UI", 9.0F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
+        totalCpuLabel.Location = New Point(677, 30)
         totalCpuLabel.Margin = New Padding(0, 3, 6, 0)
         totalCpuLabel.Name = "totalCpuLabel"
         totalCpuLabel.Size = New Size(45, 15)
         totalCpuLabel.Text = "PC CPU"
         totalCpuValueLabel.AutoSize = True
+        totalCpuValueLabel.Font = New Font("Segoe UI", 9.0F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
         totalCpuValueLabel.ForeColor = Color.DimGray
-        totalCpuValueLabel.Location = New Point(800, 11)
+        totalCpuValueLabel.Location = New Point(728, 30)
         totalCpuValueLabel.Margin = New Padding(0, 3, 0, 0)
         totalCpuValueLabel.Name = "totalCpuValueLabel"
         totalCpuValueLabel.Size = New Size(32, 15)
@@ -208,81 +325,88 @@ Partial Class RecorderHostForm
         cameraGrid.Controls.Add(cam3GroupBox, 0, 1)
         cameraGrid.Controls.Add(cam4GroupBox, 1, 1)
         cameraGrid.Dock = DockStyle.Fill
-        cameraGrid.Location = New Point(0, 35)
+        cameraGrid.Location = New Point(0, 117)
         cameraGrid.Margin = New Padding(0)
         cameraGrid.Name = "cameraGrid"
-        cameraGrid.Padding = New Padding(6, 0, 6, 6)
+        cameraGrid.Padding = New Padding(10, 0, 10, 10)
         cameraGrid.RowCount = 2
         cameraGrid.RowStyles.Add(New RowStyle(SizeType.Percent, 50.0F))
         cameraGrid.RowStyles.Add(New RowStyle(SizeType.Percent, 50.0F))
-        cameraGrid.Size = New Size(980, 853)
+        cameraGrid.Size = New Size(1040, 903)
         cam1GroupBox.Controls.Add(leftRecorderControl)
         cam1GroupBox.Dock = DockStyle.Fill
-        cam1GroupBox.Location = New Point(9, 3)
-        cam1GroupBox.Margin = New Padding(3)
+        cam1GroupBox.Font = New Font("Segoe UI", 9.0F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
+        cam1GroupBox.Location = New Point(14, 4)
+        cam1GroupBox.Margin = New Padding(4)
         cam1GroupBox.Name = "cam1GroupBox"
-        cam1GroupBox.Padding = New Padding(4)
-        cam1GroupBox.Size = New Size(479, 418)
+        cam1GroupBox.Padding = New Padding(8, 6, 8, 8)
+        cam1GroupBox.Size = New Size(502, 436)
         cam1GroupBox.TabStop = False
         cam1GroupBox.Text = "CAM1"
         leftRecorderControl.CameraName = "CAM1"
         leftRecorderControl.Dock = DockStyle.Fill
-        leftRecorderControl.Location = New Point(4, 20)
+        leftRecorderControl.Location = New Point(8, 22)
         leftRecorderControl.Margin = New Padding(0)
         leftRecorderControl.Name = "leftRecorderControl"
         leftRecorderControl.SettingsKey = "CAM1"
-        leftRecorderControl.Size = New Size(471, 394)
+        leftRecorderControl.Size = New Size(486, 406)
         cam2GroupBox.Controls.Add(rightRecorderControl)
         cam2GroupBox.Dock = DockStyle.Fill
-        cam2GroupBox.Location = New Point(494, 3)
-        cam2GroupBox.Margin = New Padding(3)
+        cam2GroupBox.Font = New Font("Segoe UI", 9.0F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
+        cam2GroupBox.Location = New Point(494, 4)
+        cam2GroupBox.Margin = New Padding(4)
         cam2GroupBox.Name = "cam2GroupBox"
-        cam2GroupBox.Padding = New Padding(4)
-        cam2GroupBox.Size = New Size(477, 418)
+        cam2GroupBox.Padding = New Padding(8, 6, 8, 8)
+        cam2GroupBox.Size = New Size(502, 436)
         cam2GroupBox.TabStop = False
         cam2GroupBox.Text = "CAM2"
         rightRecorderControl.CameraName = "CAM2"
         rightRecorderControl.Dock = DockStyle.Fill
-        rightRecorderControl.Location = New Point(4, 20)
+        rightRecorderControl.Location = New Point(8, 22)
         rightRecorderControl.Margin = New Padding(0)
         rightRecorderControl.Name = "rightRecorderControl"
         rightRecorderControl.SettingsKey = "CAM2"
-        rightRecorderControl.Size = New Size(469, 394)
+        rightRecorderControl.Size = New Size(486, 406)
         cam3GroupBox.Controls.Add(thirdRecorderControl)
         cam3GroupBox.Dock = DockStyle.Fill
-        cam3GroupBox.Location = New Point(9, 427)
-        cam3GroupBox.Margin = New Padding(3)
+        cam3GroupBox.Font = New Font("Segoe UI", 9.0F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
+        cam3GroupBox.Location = New Point(14, 388)
+        cam3GroupBox.Margin = New Padding(4)
         cam3GroupBox.Name = "cam3GroupBox"
-        cam3GroupBox.Padding = New Padding(4)
-        cam3GroupBox.Size = New Size(479, 417)
+        cam3GroupBox.Padding = New Padding(8, 6, 8, 8)
+        cam3GroupBox.Size = New Size(502, 441)
         cam3GroupBox.TabStop = False
         cam3GroupBox.Text = "CAM3"
         thirdRecorderControl.CameraName = "CAM3"
         thirdRecorderControl.Dock = DockStyle.Fill
-        thirdRecorderControl.Location = New Point(4, 20)
+        thirdRecorderControl.Location = New Point(8, 22)
         thirdRecorderControl.Margin = New Padding(0)
         thirdRecorderControl.Name = "thirdRecorderControl"
         thirdRecorderControl.SettingsKey = "CAM3"
-        thirdRecorderControl.Size = New Size(471, 393)
+        thirdRecorderControl.Size = New Size(486, 411)
         cam4GroupBox.Controls.Add(fourthRecorderControl)
         cam4GroupBox.Dock = DockStyle.Fill
-        cam4GroupBox.Location = New Point(494, 427)
-        cam4GroupBox.Margin = New Padding(3)
+        cam4GroupBox.Font = New Font("Segoe UI", 9.0F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
+        cam4GroupBox.Location = New Point(494, 388)
+        cam4GroupBox.Margin = New Padding(4)
         cam4GroupBox.Name = "cam4GroupBox"
-        cam4GroupBox.Padding = New Padding(4)
-        cam4GroupBox.Size = New Size(477, 417)
+        cam4GroupBox.Padding = New Padding(8, 6, 8, 8)
+        cam4GroupBox.Size = New Size(502, 441)
         cam4GroupBox.TabStop = False
         cam4GroupBox.Text = "CAM4"
         fourthRecorderControl.CameraName = "CAM4"
         fourthRecorderControl.Dock = DockStyle.Fill
-        fourthRecorderControl.Location = New Point(4, 20)
+        fourthRecorderControl.Location = New Point(8, 22)
         fourthRecorderControl.Margin = New Padding(0)
         fourthRecorderControl.Name = "fourthRecorderControl"
         fourthRecorderControl.SettingsKey = "CAM4"
-        fourthRecorderControl.Size = New Size(469, 393)
+        fourthRecorderControl.Size = New Size(486, 411)
         Controls.Add(mainLayout)
+        CType(intervalUpDown, System.ComponentModel.ISupportInitialize).EndInit()
         mainLayout.ResumeLayout(False)
         mainLayout.PerformLayout()
+        commonGroupBox.ResumeLayout(False)
+        commonGroupBox.PerformLayout()
         commonPanel.ResumeLayout(False)
         commonPanel.PerformLayout()
         cameraGrid.ResumeLayout(False)

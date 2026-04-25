@@ -1,3 +1,6 @@
+Imports System.Diagnostics
+Imports System.Drawing
+Imports System.IO
 Imports System.Runtime.InteropServices
 
 Partial Public Class RecorderHostForm
@@ -20,9 +23,11 @@ Partial Public Class RecorderHostForm
     Private ReadOnly systemCpuTimer As New Timer() With {.Interval = 1000}
     Private hasSystemCpuSample As Boolean
     Private lastSystemCpuSample As SystemCpuSample
+    Private suppressSharedOperatorEvents As Boolean
 
     Public Sub New()
         InitializeComponent()
+        ApplyVisualTheme()
 
         AddHandler leftRecorderControl.CpuUsageChanged, AddressOf OnRecorderCpuUsageChanged
         AddHandler rightRecorderControl.CpuUsageChanged, AddressOf OnRecorderCpuUsageChanged
@@ -30,6 +35,16 @@ Partial Public Class RecorderHostForm
         AddHandler fourthRecorderControl.CpuUsageChanged, AddressOf OnRecorderCpuUsageChanged
         AddHandler systemCpuTimer.Tick, AddressOf OnSystemCpuTimerTick
         AddHandler audioListenComboBox.SelectedIndexChanged, AddressOf OnAudioListenSelectionChanged
+        AddHandler profileComboBox.SelectedIndexChanged, AddressOf OnSharedProfileChanged
+        AddHandler intervalUpDown.ValueChanged, AddressOf OnSharedIntervalChanged
+        AddHandler recordAllButton.Click, AddressOf OnRecordAllClicked
+        AddHandler stopAllButton.Click, AddressOf OnStopAllClicked
+        AddHandler openRecordingsButton.Click, AddressOf OnOpenRecordingsClicked
+        AddHandler deleteAllButton.Click, AddressOf OnDeleteAllClicked
+        AddHandler Load, AddressOf RecorderHostForm_Load
+
+        profileComboBox.Items.Clear()
+        profileComboBox.Items.AddRange(leftRecorderControl.AvailableProfileNames.ToArray())
 
         audioListenComboBox.Items.AddRange(New Object() {"Off", "CAM1", "CAM2", "CAM3", "CAM4"})
         audioListenComboBox.SelectedItem = "CAM1"
@@ -39,6 +54,52 @@ Partial Public Class RecorderHostForm
         systemCpuTimer.Start()
         ApplyAudioListenSelection()
         UpdateCpuLabels()
+    End Sub
+
+    Private Sub ApplyVisualTheme()
+        Dim appBackground = Color.FromArgb(232, 236, 238)
+        Dim commonBackground = Color.FromArgb(236, 229, 214)
+        Dim cam1Background = Color.FromArgb(232, 240, 248)
+        Dim cam2Background = Color.FromArgb(246, 238, 224)
+        Dim cam3Background = Color.FromArgb(232, 242, 233)
+        Dim cam4Background = Color.FromArgb(245, 232, 235)
+
+        BackColor = appBackground
+        mainLayout.BackColor = appBackground
+        cameraGrid.BackColor = appBackground
+
+        commonGroupBox.BackColor = commonBackground
+        commonGroupBox.ForeColor = Color.FromArgb(36, 53, 69)
+        commonPanel.BackColor = commonBackground
+
+        StyleCameraSection(cam1GroupBox, leftRecorderControl, cam1Background)
+        StyleCameraSection(cam2GroupBox, rightRecorderControl, cam2Background)
+        StyleCameraSection(cam3GroupBox, thirdRecorderControl, cam3Background)
+        StyleCameraSection(cam4GroupBox, fourthRecorderControl, cam4Background)
+    End Sub
+
+    Private Sub StyleCameraSection(groupBox As GroupBox, recorderControl As RecorderControl, baseColor As Color)
+        groupBox.BackColor = baseColor
+        groupBox.ForeColor = Color.FromArgb(52, 60, 68)
+        recorderControl.BackColor = LightenColor(baseColor, 10)
+    End Sub
+
+    Private Function LightenColor(color As Color, amount As Integer) As Color
+        Return Color.FromArgb(
+            Math.Min(255, color.R + amount),
+            Math.Min(255, color.G + amount),
+            Math.Min(255, color.B + amount))
+    End Function
+
+    Private Iterator Function GetRecorderControls() As IEnumerable(Of RecorderControl)
+        Yield leftRecorderControl
+        Yield rightRecorderControl
+        Yield thirdRecorderControl
+        Yield fourthRecorderControl
+    End Function
+
+    Private Sub RecorderHostForm_Load(sender As Object, e As EventArgs)
+        SyncSharedOperatorControlsFromRecorder(leftRecorderControl)
     End Sub
 
     Private Sub OnSystemCpuTimerTick(sender As Object, e As EventArgs)
@@ -58,6 +119,94 @@ Partial Public Class RecorderHostForm
         ApplyAudioListenSelection()
     End Sub
 
+    Private Sub OnSharedProfileChanged(sender As Object, e As EventArgs)
+        If suppressSharedOperatorEvents Then
+            Return
+        End If
+
+        Dim selectedProfileName = TryCast(profileComboBox.SelectedItem, String)
+
+        If String.IsNullOrWhiteSpace(selectedProfileName) Then
+            Return
+        End If
+
+        For Each recorderControl In GetRecorderControls()
+            recorderControl.SelectedProfileName = selectedProfileName
+        Next
+    End Sub
+
+    Private Sub OnSharedIntervalChanged(sender As Object, e As EventArgs)
+        If suppressSharedOperatorEvents Then
+            Return
+        End If
+
+        Dim intervalSeconds = Decimal.ToInt32(intervalUpDown.Value)
+
+        For Each recorderControl In GetRecorderControls()
+            recorderControl.ClipIntervalSeconds = intervalSeconds
+        Next
+    End Sub
+
+    Private Sub OnRecordAllClicked(sender As Object, e As EventArgs)
+        For Each recorderControl In GetRecorderControls()
+            recorderControl.StartRecordingRequested()
+        Next
+    End Sub
+
+    Private Sub OnStopAllClicked(sender As Object, e As EventArgs)
+        For Each recorderControl In GetRecorderControls()
+            recorderControl.StopRecordingRequested()
+        Next
+    End Sub
+
+    Private Sub OnOpenRecordingsClicked(sender As Object, e As EventArgs)
+        Dim outputFolderPath = leftRecorderControl.OutputFolderPath
+        Directory.CreateDirectory(outputFolderPath)
+        Process.Start(New ProcessStartInfo(outputFolderPath) With {.UseShellExecute = True})
+    End Sub
+
+    Private Sub OnDeleteAllClicked(sender As Object, e As EventArgs)
+        Dim outputFolderPath = leftRecorderControl.OutputFolderPath
+
+        If GetRecorderControls().Any(Function(recorderControl) recorderControl.IsRecording) Then
+            MessageBox.Show(Me, "Stop all recordings before deleting files.", "Delete All", MessageBoxButtons.OK, MessageBoxIcon.Warning)
+            Return
+        End If
+
+        If Not Directory.Exists(outputFolderPath) Then
+            MessageBox.Show(Me, "There are no recordings to delete.", "Delete All", MessageBoxButtons.OK, MessageBoxIcon.Information)
+            Return
+        End If
+
+        Dim filePaths = Directory.GetFiles(outputFolderPath)
+
+        If filePaths.Length = 0 Then
+            MessageBox.Show(Me, "There are no recordings to delete.", "Delete All", MessageBoxButtons.OK, MessageBoxIcon.Information)
+            Return
+        End If
+
+        Dim confirmation = MessageBox.Show(
+            Me,
+            $"Delete all files in {outputFolderPath}?",
+            "Delete All Recordings",
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Warning,
+            MessageBoxDefaultButton.Button2)
+
+        If confirmation <> DialogResult.Yes Then
+            Return
+        End If
+
+        Dim deletedCount = 0
+
+        For Each filePath In filePaths
+            File.Delete(filePath)
+            deletedCount += 1
+        Next
+
+        MessageBox.Show(Me, $"Deleted {deletedCount} recording file(s).", "Delete All", MessageBoxButtons.OK, MessageBoxIcon.Information)
+    End Sub
+
     Private Sub ApplyAudioListenSelection()
         Dim selectedCameraName = If(TryCast(audioListenComboBox.SelectedItem, String), "Off")
 
@@ -65,6 +214,20 @@ Partial Public Class RecorderHostForm
         rightRecorderControl.SpeakerMonitorEnabled = String.Equals(selectedCameraName, "CAM2", StringComparison.OrdinalIgnoreCase)
         thirdRecorderControl.SpeakerMonitorEnabled = String.Equals(selectedCameraName, "CAM3", StringComparison.OrdinalIgnoreCase)
         fourthRecorderControl.SpeakerMonitorEnabled = String.Equals(selectedCameraName, "CAM4", StringComparison.OrdinalIgnoreCase)
+    End Sub
+
+    Private Sub SyncSharedOperatorControlsFromRecorder(sourceRecorder As RecorderControl)
+        suppressSharedOperatorEvents = True
+
+        Try
+            profileComboBox.SelectedItem = sourceRecorder.SelectedProfileName
+            intervalUpDown.Value = Math.Max(intervalUpDown.Minimum, Math.Min(intervalUpDown.Maximum, sourceRecorder.ClipIntervalSeconds))
+        Finally
+            suppressSharedOperatorEvents = False
+        End Try
+
+        OnSharedProfileChanged(Me, EventArgs.Empty)
+        OnSharedIntervalChanged(Me, EventArgs.Empty)
     End Sub
 
     Private Sub UpdateCpuLabels()

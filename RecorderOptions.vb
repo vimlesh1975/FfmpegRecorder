@@ -36,6 +36,8 @@ Friend Class RecorderOptions
             builder.Append(OutputOptions.Trim()).Append(" ")
         End If
 
+        AppendSegmentBoundaryKeyframes(builder)
+
         builder.Append("-f segment ")
         builder.Append("-segment_time ").Append(Math.Max(1, ClipDurationSeconds)).Append(" ")
         builder.Append("-reset_timestamps 1 ")
@@ -62,6 +64,8 @@ Friend Class RecorderOptions
         Else
             builder.Append(OutputOptions.Trim()).Append(" ")
         End If
+
+        AppendSegmentBoundaryKeyframes(builder)
 
         builder.Append("-f segment ")
         builder.Append("-segment_time ").Append(Math.Max(1, ClipDurationSeconds)).Append(" ")
@@ -191,6 +195,11 @@ Friend Class RecorderOptions
     Private Function QuotePan(expression As String) As String
         Return expression.Replace("""", String.Empty)
     End Function
+
+    Private Sub AppendSegmentBoundaryKeyframes(builder As StringBuilder)
+        Dim segmentSeconds = Math.Max(1, ClipDurationSeconds)
+        builder.Append("-force_key_frames ").Append(Quote($"expr:gte(t,n_forced*{segmentSeconds})")).Append(" ")
+    End Sub
 
     Private Sub AppendInputArguments(builder As StringBuilder)
         builder.Append("-hide_banner ")

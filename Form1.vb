@@ -161,6 +161,63 @@ Partial Public Class RecorderControl
     End Property
 
     <Browsable(False), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)>
+    Public ReadOnly Property IsRecording As Boolean
+        Get
+            Return captureRunner IsNot Nothing
+        End Get
+    End Property
+
+    <Browsable(False), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)>
+    Public ReadOnly Property OutputFolderPath As String
+        Get
+            Return CreateDefaultOptions().OutputFolder
+        End Get
+    End Property
+
+    <Browsable(False), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)>
+    Public ReadOnly Property AvailableProfileNames As IReadOnlyList(Of String)
+        Get
+            Return profileComboBox.Items.Cast(Of Object)().
+                Select(Function(item) item.ToString()).
+                ToArray()
+        End Get
+    End Property
+
+    <Browsable(False), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)>
+    Public Property SelectedProfileName As String
+        Get
+            Return GetSelectedRecordingProfile().DisplayName
+        End Get
+        Set(value As String)
+            If String.IsNullOrWhiteSpace(value) Then
+                Return
+            End If
+
+            Dim matchingProfile = profileComboBox.Items.
+                Cast(Of Object)().
+                Select(Function(item) TryCast(item, RecordingProfileDefinition)).
+                FirstOrDefault(Function(profile) profile IsNot Nothing AndAlso String.Equals(profile.DisplayName, value, StringComparison.OrdinalIgnoreCase))
+
+            If matchingProfile Is Nothing Then
+                Return
+            End If
+
+            profileComboBox.SelectedItem = matchingProfile
+        End Set
+    End Property
+
+    <Browsable(False), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)>
+    Public Property ClipIntervalSeconds As Integer
+        Get
+            Return GetSelectedClipDurationSeconds()
+        End Get
+        Set(value As Integer)
+            Dim clampedValue = Math.Max(CInt(intervalUpDown.Minimum), Math.Min(CInt(intervalUpDown.Maximum), value))
+            intervalUpDown.Value = clampedValue
+        End Set
+    End Property
+
+    <Browsable(False), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)>
     Public Property SpeakerMonitorEnabled As Boolean
         Get
             Return speakerMonitorEnabledValue
@@ -194,16 +251,30 @@ Partial Public Class RecorderControl
         End Set
     End Property
 
+    Public Sub StartRecordingRequested()
+        StartRecording(Me, EventArgs.Empty)
+    End Sub
+
+    Public Sub StopRecordingRequested()
+        StopRecording(Me, EventArgs.Empty)
+    End Sub
+
     Public Sub New()
         InitializeComponent()
         InitializeOperatorUi()
         InitializeDeckLinkSelector()
+        ApplyThemeBackColors()
         UpdateStaticInfo()
         UpdateUiState(False)
         AddHandler recordingPreviewRetryTimer.Tick, AddressOf OnRecordingPreviewRetryTick
         AddHandler audioMonitorRetryTimer.Tick, AddressOf OnAudioMonitorRetryTick
         AddHandler cpuUsageTimer.Tick, AddressOf OnCpuUsageTimerTick
         AddHandler Load, AddressOf RecorderControl_Load
+    End Sub
+
+    Protected Overrides Sub OnBackColorChanged(e As EventArgs)
+        MyBase.OnBackColorChanged(e)
+        ApplyThemeBackColors()
     End Sub
 
     Private Sub InitializeOperatorUi()
@@ -274,13 +345,6 @@ Partial Public Class RecorderControl
         statusValueLabel.Anchor = AnchorStyles.Left
         statusValueLabel.Margin = New Padding(0, 6, 12, 6)
 
-        Dim intervalLabel As New Label() With {
-            .AutoSize = True,
-            .Text = "Interval (s)",
-            .Anchor = AnchorStyles.Left,
-            .Margin = New Padding(12, 6, 6, 6)
-        }
-
         Dim profileLabel As New Label() With {
             .AutoSize = True,
             .Text = "Profile",
@@ -304,6 +368,13 @@ Partial Public Class RecorderControl
         })
         profileComboBox.SelectedItem = xdcamHd422Profile
         AddHandler profileComboBox.SelectedIndexChanged, AddressOf OnProfileChanged
+
+        Dim intervalLabel As New Label() With {
+            .AutoSize = True,
+            .Text = "Interval (s)",
+            .Anchor = AnchorStyles.Left,
+            .Margin = New Padding(12, 6, 6, 6)
+        }
 
         intervalUpDown.Minimum = 1
         intervalUpDown.Maximum = 3600
@@ -338,12 +409,11 @@ Partial Public Class RecorderControl
 
         Dim buttonRow As New TableLayoutPanel() With {
             .AutoSize = True,
-            .ColumnCount = 3,
+            .ColumnCount = 2,
             .RowCount = 1,
             .Anchor = AnchorStyles.Left,
             .Margin = New Padding(0, 4, 0, 0)
         }
-        buttonRow.ColumnStyles.Add(New ColumnStyle(SizeType.AutoSize))
         buttonRow.ColumnStyles.Add(New ColumnStyle(SizeType.AutoSize))
         buttonRow.ColumnStyles.Add(New ColumnStyle(SizeType.AutoSize))
         buttonRow.RowStyles.Add(New RowStyle(SizeType.AutoSize))
@@ -359,11 +429,6 @@ Partial Public Class RecorderControl
         stopButton.Size = New Size(64, 28)
         stopButton.Margin = New Padding(0, 0, 4, 0)
 
-        openOutputFolderButton.Text = "Open Recordings"
-        openOutputFolderButton.AutoSize = False
-        openOutputFolderButton.Size = New Size(112, 28)
-        openOutputFolderButton.Margin = New Padding(0)
-
         deviceValueLabel.AutoSize = True
         deviceValueLabel.ForeColor = Color.DimGray
         deviceValueLabel.MaximumSize = New Size(420, 0)
@@ -371,7 +436,6 @@ Partial Public Class RecorderControl
 
         AddHandler recordButton.Click, AddressOf StartRecording
         AddHandler stopButton.Click, AddressOf StopRecording
-        AddHandler openOutputFolderButton.Click, AddressOf OpenOutputFolder
 
         headerRow.Controls.Add(statusLabel, 0, 0)
         headerRow.Controls.Add(statusValueLabel, 1, 0)
@@ -385,7 +449,6 @@ Partial Public Class RecorderControl
 
         buttonRow.Controls.Add(recordButton, 0, 0)
         buttonRow.Controls.Add(stopButton, 1, 0)
-        buttonRow.Controls.Add(openOutputFolderButton, 2, 0)
 
         panel.Controls.Add(headerRow, 0, 0)
         panel.Controls.Add(deviceRow, 0, 1)
@@ -449,6 +512,26 @@ Partial Public Class RecorderControl
         logPanel.Controls.Add(logTextBox)
         Return logPanel
     End Function
+
+    Private Sub ApplyThemeBackColors()
+        If Controls.Count = 0 Then
+            Return
+        End If
+
+        ApplyThemeBackColorsRecursive(Me)
+    End Sub
+
+    Private Sub ApplyThemeBackColorsRecursive(parentControl As Control)
+        For Each childControl As Control In parentControl.Controls
+            If TypeOf childControl Is TableLayoutPanel OrElse TypeOf childControl Is Panel OrElse TypeOf childControl Is Label Then
+                childControl.BackColor = BackColor
+            End If
+
+            If childControl.HasChildren Then
+                ApplyThemeBackColorsRecursive(childControl)
+            End If
+        Next
+    End Sub
 
     Private Sub RecorderControl_Load(sender As Object, e As EventArgs)
         If hasLoadedOnce Then
@@ -1147,12 +1230,6 @@ Partial Public Class RecorderControl
         stopButton.Enabled = False
         AppendLog("Stopping recording...")
         captureRunner.Stop()
-    End Sub
-
-    Private Sub OpenOutputFolder(sender As Object, e As EventArgs)
-        Dim folderPath = CreateDefaultOptions().OutputFolder
-        Directory.CreateDirectory(folderPath)
-        Process.Start(New ProcessStartInfo(folderPath) With {.UseShellExecute = True})
     End Sub
 
     Private Sub UpdateUiState(isRecording As Boolean)
