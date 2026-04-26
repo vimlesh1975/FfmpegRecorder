@@ -108,8 +108,8 @@ Partial Class RecorderHostForm
         SuspendLayout()
         AutoScaleMode = AutoScaleMode.Font
         ClientSize = New Size(1480, 1020)
-        FormBorderStyle = FormBorderStyle.FixedSingle
-        MaximizeBox = False
+        FormBorderStyle = FormBorderStyle.Sizable
+        MaximizeBox = True
         MinimizeBox = False
         Name = "RecorderHostForm"
         StartPosition = FormStartPosition.CenterScreen

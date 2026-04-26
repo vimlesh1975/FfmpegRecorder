@@ -33,7 +33,6 @@ Public Class StreamRecorderControl
     Private ReadOnly stopPreviewButton As New Button()
     Private ReadOnly recordButton As New Button()
     Private ReadOnly stopButton As New Button()
-    Private ReadOnly openOutputFolderButton As New Button()
     Private ReadOnly elapsedLabel As New Label()
     Private ReadOnly previewPictureBox As New PictureBox()
     Private ReadOnly previewStateLabel As New Label()
@@ -57,7 +56,6 @@ Public Class StreamRecorderControl
         AddHandler stopButton.Click, AddressOf StopRecording
         AddHandler previewButton.Click, AddressOf StartPreview
         AddHandler stopPreviewButton.Click, AddressOf StopPreview
-        AddHandler openOutputFolderButton.Click, AddressOf OpenOutputFolder
         AddHandler elapsedTimer.Tick, AddressOf OnElapsedTimerTick
         AddHandler urlTextBox.TextChanged, AddressOf OnSettingsChanged
         AddHandler profileComboBox.SelectedIndexChanged, AddressOf OnSettingsChanged
@@ -224,10 +222,6 @@ Public Class StreamRecorderControl
         stopButton.Size = New Size(64, 28)
         stopButton.Margin = New Padding(0, 0, 6, 0)
 
-        openOutputFolderButton.Text = "Open"
-        openOutputFolderButton.Size = New Size(64, 28)
-        openOutputFolderButton.Margin = New Padding(0, 0, 6, 0)
-
         elapsedLabel.AutoSize = True
         elapsedLabel.Font = New Font("Segoe UI", 9.0F, FontStyle.Bold)
         elapsedLabel.Text = "REC 00:00:00"
@@ -240,7 +234,6 @@ Public Class StreamRecorderControl
         actionRow.Controls.Add(stopPreviewButton)
         actionRow.Controls.Add(recordButton)
         actionRow.Controls.Add(stopButton)
-        actionRow.Controls.Add(openOutputFolderButton)
         actionRow.Controls.Add(elapsedLabel)
 
         Dim previewPanel As New Panel() With {
@@ -495,10 +488,21 @@ Public Class StreamRecorderControl
             builder.Append("-re -i ").Append(Quote(inputUrl)).Append(" ")
         Next
 
-        builder.Append("-map 0:v:0 ")
-        builder.Append("-vf ").Append(Quote("scale=320:180:force_original_aspect_ratio=decrease,pad=320:180:(ow-iw)/2:(oh-ih)/2,fps=8")).Append(" ")
+        builder.Append("-filter_complex ").Append(Quote(BuildPreviewFilterGraph(inputUrls))).Append(" ")
+        builder.Append("-map ").Append(Quote("[out]")).Append(" ")
         builder.Append("-an -flush_packets 1 -c:v mjpeg -q:v 6 -f mjpeg pipe:1")
         Return builder.ToString()
+    End Function
+
+    Private Function BuildPreviewFilterGraph(inputUrls As IReadOnlyList(Of String)) As String
+        Dim audioInputLabel = If(inputUrls.Count >= 2, "[1:a]", "[0:a]")
+        Dim previewWidth = 320
+        Dim previewHeight = 180
+        Dim meterChannelWidth = 80
+        Dim meterOutputWidth = 18
+        Dim rightMeterPan = "mono|c0=c1"
+
+        Return $"[0:v]scale={previewWidth}:{previewHeight}:force_original_aspect_ratio=decrease,pad={previewWidth}:{previewHeight}:(ow-iw)/2:(oh-ih)/2,fps=8,format=yuv420p[video];{audioInputLabel}asplit=2[left_meter_src][right_meter_src];[left_meter_src]pan=mono|c0=c0,showvolume=r=8:w={meterChannelWidth}:h={previewHeight}:f=0.92:b=2:t=0:v=1:dm=1:o=v:ds=log:p=0.18:m=r[left_bar_src];[left_bar_src]scale={meterOutputWidth}:{previewHeight},format=yuv420p[left_bar];[right_meter_src]pan={rightMeterPan},showvolume=r=8:w={meterChannelWidth}:h={previewHeight}:f=0.92:b=2:t=0:v=1:dm=1:o=v:ds=log:p=0.18:m=r[right_bar_src];[right_bar_src]scale={meterOutputWidth}:{previewHeight},format=yuv420p[right_bar];[left_bar][video][right_bar]hstack=inputs=3[out]"
     End Function
 
     Private Function GetSelectedProfile() As StreamRecordingProfile
@@ -690,11 +694,6 @@ Public Class StreamRecorderControl
         Return If(File.Exists(ffplayPath), ffplayPath, Nothing)
     End Function
 
-    Private Sub OpenOutputFolder(sender As Object, e As EventArgs)
-        Directory.CreateDirectory(OutputFolderPath)
-        Process.Start(New ProcessStartInfo(OutputFolderPath) With {.UseShellExecute = True})
-    End Sub
-
     Private Sub UpdateUiState(isRecording As Boolean)
         recordButton.Enabled = Not isRecording
         stopButton.Enabled = isRecording
@@ -703,7 +702,6 @@ Public Class StreamRecorderControl
         profileComboBox.Enabled = Not isRecording
         previewButton.Enabled = Not isRecording AndAlso previewRunner Is Nothing
         stopPreviewButton.Enabled = Not isRecording AndAlso previewRunner IsNot Nothing
-        openOutputFolderButton.Enabled = True
     End Sub
 
     Private Sub OnElapsedTimerTick(sender As Object, e As EventArgs)
