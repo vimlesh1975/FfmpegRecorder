@@ -130,6 +130,7 @@ Partial Public Class RecorderControl
     Private lastCpuSamples As New Dictionary(Of Integer, CpuSample)()
     Private hasLoadedOnce As Boolean
     Private hasDisposedResources As Boolean
+    Private darkModeEnabledValue As Boolean
 
     Public Event CpuUsageChanged As EventHandler(Of CpuUsageChangedEventArgs)
 
@@ -158,6 +159,21 @@ Partial Public Class RecorderControl
         Get
             Return currentCpuUsagePercentValue
         End Get
+    End Property
+
+    <Browsable(False), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)>
+    Public Property DarkModeEnabled As Boolean
+        Get
+            Return darkModeEnabledValue
+        End Get
+        Set(value As Boolean)
+            If darkModeEnabledValue = value Then
+                Return
+            End If
+
+            darkModeEnabledValue = value
+            ApplyThemeColors()
+        End Set
     End Property
 
     <Browsable(False), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)>
@@ -263,7 +279,7 @@ Partial Public Class RecorderControl
         InitializeComponent()
         InitializeOperatorUi()
         InitializeDeckLinkSelector()
-        ApplyThemeBackColors()
+        ApplyThemeColors()
         UpdateStaticInfo()
         UpdateUiState(False)
         AddHandler recordingPreviewRetryTimer.Tick, AddressOf OnRecordingPreviewRetryTick
@@ -274,7 +290,7 @@ Partial Public Class RecorderControl
 
     Protected Overrides Sub OnBackColorChanged(e As EventArgs)
         MyBase.OnBackColorChanged(e)
-        ApplyThemeBackColors()
+        ApplyThemeColors()
     End Sub
 
     Private Sub InitializeOperatorUi()
@@ -513,22 +529,48 @@ Partial Public Class RecorderControl
         Return logPanel
     End Function
 
-    Private Sub ApplyThemeBackColors()
+    Private Sub ApplyThemeColors()
         If Controls.Count = 0 Then
             Return
         End If
 
-        ApplyThemeBackColorsRecursive(Me)
+        Dim textColor = If(darkModeEnabledValue, Color.FromArgb(232, 236, 240), SystemColors.ControlText)
+        Dim mutedTextColor = If(darkModeEnabledValue, Color.FromArgb(182, 189, 196), Color.DimGray)
+        Dim inputBackground = If(darkModeEnabledValue, Color.FromArgb(36, 39, 44), SystemColors.Window)
+        Dim inputForeground = If(darkModeEnabledValue, Color.FromArgb(245, 247, 250), SystemColors.WindowText)
+        Dim logBackground = If(darkModeEnabledValue, Color.FromArgb(20, 22, 25), SystemColors.Window)
+
+        ApplyThemeColorsRecursive(Me, textColor, inputBackground, inputForeground, logBackground)
+        deviceValueLabel.ForeColor = mutedTextColor
     End Sub
 
-    Private Sub ApplyThemeBackColorsRecursive(parentControl As Control)
+    Private Sub ApplyThemeColorsRecursive(parentControl As Control, textColor As Color, inputBackground As Color, inputForeground As Color, logBackground As Color)
         For Each childControl As Control In parentControl.Controls
             If TypeOf childControl Is TableLayoutPanel OrElse TypeOf childControl Is Panel OrElse TypeOf childControl Is Label Then
                 childControl.BackColor = BackColor
             End If
 
+            If TypeOf childControl Is Label AndAlso childControl IsNot statusValueLabel AndAlso childControl IsNot previewStateLabel Then
+                childControl.ForeColor = textColor
+            ElseIf TypeOf childControl Is ComboBox OrElse TypeOf childControl Is NumericUpDown Then
+                childControl.BackColor = inputBackground
+                childControl.ForeColor = inputForeground
+            ElseIf TypeOf childControl Is TextBox Then
+                childControl.BackColor = logBackground
+                childControl.ForeColor = inputForeground
+            ElseIf TypeOf childControl Is Button Then
+                Dim button = DirectCast(childControl, Button)
+                button.UseVisualStyleBackColor = Not darkModeEnabledValue
+                button.BackColor = If(darkModeEnabledValue, Color.FromArgb(61, 66, 73), SystemColors.Control)
+                button.ForeColor = If(darkModeEnabledValue, Color.FromArgb(245, 247, 250), SystemColors.ControlText)
+                button.FlatStyle = If(darkModeEnabledValue, FlatStyle.Flat, FlatStyle.Standard)
+                If darkModeEnabledValue Then
+                    button.FlatAppearance.BorderColor = Color.FromArgb(90, 96, 104)
+                End If
+            End If
+
             If childControl.HasChildren Then
-                ApplyThemeBackColorsRecursive(childControl)
+                ApplyThemeColorsRecursive(childControl, textColor, inputBackground, inputForeground, logBackground)
             End If
         Next
     End Sub

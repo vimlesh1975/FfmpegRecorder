@@ -26,6 +26,7 @@ Partial Class RecorderHostForm
     Private stopAllButton As Button
     Private openRecordingsButton As Button
     Private deleteAllButton As Button
+    Private darkModeCheckBox As CheckBox
     Private audioListenPanel As FlowLayoutPanel
     Private audioListenLabel As Label
     Private audioListenComboBox As ComboBox
@@ -64,6 +65,7 @@ Partial Class RecorderHostForm
         stopAllButton = New Button()
         openRecordingsButton = New Button()
         deleteAllButton = New Button()
+        darkModeCheckBox = New CheckBox()
         audioListenPanel = New FlowLayoutPanel()
         audioListenLabel = New Label()
         audioListenComboBox = New ComboBox()
@@ -136,6 +138,7 @@ Partial Class RecorderHostForm
         commonPanel.Controls.Add(stopAllButton)
         commonPanel.Controls.Add(openRecordingsButton)
         commonPanel.Controls.Add(deleteAllButton)
+        commonPanel.Controls.Add(darkModeCheckBox)
         commonPanel.Controls.Add(audioListenPanel)
         commonPanel.Controls.Add(cam1CpuLabel)
         commonPanel.Controls.Add(cam1CpuValueLabel)
@@ -219,11 +222,19 @@ Partial Class RecorderHostForm
         deleteAllButton.Size = New Size(76, 24)
         deleteAllButton.Text = "Delete All"
         deleteAllButton.UseVisualStyleBackColor = True
+        darkModeCheckBox.AutoSize = True
+        darkModeCheckBox.Font = New Font("Segoe UI", 9.0F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
+        darkModeCheckBox.Location = New Point(854, 7)
+        darkModeCheckBox.Margin = New Padding(0, 3, 18, 0)
+        darkModeCheckBox.Name = "darkModeCheckBox"
+        darkModeCheckBox.Size = New Size(82, 19)
+        darkModeCheckBox.Text = "Dark Mode"
+        darkModeCheckBox.UseVisualStyleBackColor = True
         audioListenPanel.AutoSize = True
         audioListenPanel.Controls.Add(audioListenLabel)
         audioListenPanel.Controls.Add(audioListenComboBox)
         audioListenPanel.FlowDirection = FlowDirection.LeftToRight
-        audioListenPanel.Location = New Point(854, 4)
+        audioListenPanel.Location = New Point(954, 4)
         audioListenPanel.Margin = New Padding(0, 0, 18, 0)
         audioListenPanel.Name = "audioListenPanel"
         audioListenPanel.Size = New Size(189, 23)

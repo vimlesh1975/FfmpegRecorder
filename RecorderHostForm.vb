@@ -24,6 +24,7 @@ Partial Public Class RecorderHostForm
     Private hasSystemCpuSample As Boolean
     Private lastSystemCpuSample As SystemCpuSample
     Private suppressSharedOperatorEvents As Boolean
+    Private isDarkModeEnabled As Boolean
 
     Public Sub New()
         InitializeComponent()
@@ -41,6 +42,7 @@ Partial Public Class RecorderHostForm
         AddHandler stopAllButton.Click, AddressOf OnStopAllClicked
         AddHandler openRecordingsButton.Click, AddressOf OnOpenRecordingsClicked
         AddHandler deleteAllButton.Click, AddressOf OnDeleteAllClicked
+        AddHandler darkModeCheckBox.CheckedChanged, AddressOf OnDarkModeChanged
         AddHandler Load, AddressOf RecorderHostForm_Load
 
         profileComboBox.Items.Clear()
@@ -57,20 +59,22 @@ Partial Public Class RecorderHostForm
     End Sub
 
     Private Sub ApplyVisualTheme()
-        Dim appBackground = Color.FromArgb(232, 236, 238)
-        Dim commonBackground = Color.FromArgb(236, 229, 214)
-        Dim cam1Background = Color.FromArgb(232, 240, 248)
-        Dim cam2Background = Color.FromArgb(246, 238, 224)
-        Dim cam3Background = Color.FromArgb(232, 242, 233)
-        Dim cam4Background = Color.FromArgb(245, 232, 235)
+        Dim appBackground = If(isDarkModeEnabled, Color.FromArgb(28, 31, 36), Color.FromArgb(232, 236, 238))
+        Dim commonBackground = If(isDarkModeEnabled, Color.FromArgb(43, 45, 50), Color.FromArgb(236, 229, 214))
+        Dim commonForeground = If(isDarkModeEnabled, Color.FromArgb(236, 239, 242), Color.FromArgb(36, 53, 69))
+        Dim cam1Background = If(isDarkModeEnabled, Color.FromArgb(34, 43, 53), Color.FromArgb(232, 240, 248))
+        Dim cam2Background = If(isDarkModeEnabled, Color.FromArgb(51, 44, 35), Color.FromArgb(246, 238, 224))
+        Dim cam3Background = If(isDarkModeEnabled, Color.FromArgb(35, 48, 39), Color.FromArgb(232, 242, 233))
+        Dim cam4Background = If(isDarkModeEnabled, Color.FromArgb(51, 38, 43), Color.FromArgb(245, 232, 235))
 
         BackColor = appBackground
         mainLayout.BackColor = appBackground
         cameraGrid.BackColor = appBackground
 
         commonGroupBox.BackColor = commonBackground
-        commonGroupBox.ForeColor = Color.FromArgb(36, 53, 69)
+        commonGroupBox.ForeColor = commonForeground
         commonPanel.BackColor = commonBackground
+        ApplyCommonControlTheme(commonPanel, commonBackground, commonForeground)
 
         StyleCameraSection(cam1GroupBox, leftRecorderControl, cam1Background)
         StyleCameraSection(cam2GroupBox, rightRecorderControl, cam2Background)
@@ -79,9 +83,40 @@ Partial Public Class RecorderHostForm
     End Sub
 
     Private Sub StyleCameraSection(groupBox As GroupBox, recorderControl As RecorderControl, baseColor As Color)
+        Dim foreground = If(isDarkModeEnabled, Color.FromArgb(236, 239, 242), Color.FromArgb(52, 60, 68))
+
         groupBox.BackColor = baseColor
-        groupBox.ForeColor = Color.FromArgb(52, 60, 68)
-        recorderControl.BackColor = LightenColor(baseColor, 10)
+        groupBox.ForeColor = foreground
+        recorderControl.BackColor = If(isDarkModeEnabled, LightenColor(baseColor, 8), LightenColor(baseColor, 10))
+        recorderControl.DarkModeEnabled = isDarkModeEnabled
+    End Sub
+
+    Private Sub ApplyCommonControlTheme(parentControl As Control, background As Color, foreground As Color)
+        For Each childControl As Control In parentControl.Controls
+            If TypeOf childControl Is Label OrElse TypeOf childControl Is FlowLayoutPanel Then
+                childControl.BackColor = background
+                childControl.ForeColor = foreground
+            ElseIf TypeOf childControl Is CheckBox Then
+                childControl.BackColor = background
+                childControl.ForeColor = foreground
+            ElseIf TypeOf childControl Is Button Then
+                Dim button = DirectCast(childControl, Button)
+                button.UseVisualStyleBackColor = Not isDarkModeEnabled
+                button.BackColor = If(isDarkModeEnabled, Color.FromArgb(62, 67, 74), SystemColors.Control)
+                button.ForeColor = foreground
+                button.FlatStyle = If(isDarkModeEnabled, FlatStyle.Flat, FlatStyle.Standard)
+                If isDarkModeEnabled Then
+                    button.FlatAppearance.BorderColor = Color.FromArgb(90, 96, 104)
+                End If
+            ElseIf TypeOf childControl Is ComboBox OrElse TypeOf childControl Is NumericUpDown Then
+                childControl.BackColor = If(isDarkModeEnabled, Color.FromArgb(37, 40, 45), SystemColors.Window)
+                childControl.ForeColor = If(isDarkModeEnabled, Color.FromArgb(245, 247, 250), SystemColors.WindowText)
+            End If
+
+            If childControl.HasChildren Then
+                ApplyCommonControlTheme(childControl, background, foreground)
+            End If
+        Next
     End Sub
 
     Private Function LightenColor(color As Color, amount As Integer) As Color
@@ -205,6 +240,11 @@ Partial Public Class RecorderHostForm
         Next
 
         MessageBox.Show(Me, $"Deleted {deletedCount} recording file(s).", "Delete All", MessageBoxButtons.OK, MessageBoxIcon.Information)
+    End Sub
+
+    Private Sub OnDarkModeChanged(sender As Object, e As EventArgs)
+        isDarkModeEnabled = darkModeCheckBox.Checked
+        ApplyVisualTheme()
     End Sub
 
     Private Sub ApplyAudioListenSelection()
