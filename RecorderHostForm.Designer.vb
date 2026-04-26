@@ -40,7 +40,10 @@ Partial Class RecorderHostForm
     Private cam4CpuValueLabel As Label
     Private totalCpuLabel As Label
     Private totalCpuValueLabel As Label
+    Private contentLayout As TableLayoutPanel
     Private cameraGrid As TableLayoutPanel
+    Private streamGroupBox As GroupBox
+    Private streamRecorderControl As StreamRecorderControl
     Private cam1GroupBox As GroupBox
     Private cam2GroupBox As GroupBox
     Private cam3GroupBox As GroupBox
@@ -79,7 +82,10 @@ Partial Class RecorderHostForm
         cam4CpuValueLabel = New Label()
         totalCpuLabel = New Label()
         totalCpuValueLabel = New Label()
+        contentLayout = New TableLayoutPanel()
         cameraGrid = New TableLayoutPanel()
+        streamGroupBox = New GroupBox()
+        streamRecorderControl = New StreamRecorderControl()
         cam1GroupBox = New GroupBox()
         leftRecorderControl = New RecorderControl()
         cam2GroupBox = New GroupBox()
@@ -92,14 +98,16 @@ Partial Class RecorderHostForm
         mainLayout.SuspendLayout()
         commonGroupBox.SuspendLayout()
         commonPanel.SuspendLayout()
+        contentLayout.SuspendLayout()
         cameraGrid.SuspendLayout()
+        streamGroupBox.SuspendLayout()
         cam1GroupBox.SuspendLayout()
         cam2GroupBox.SuspendLayout()
         cam3GroupBox.SuspendLayout()
         cam4GroupBox.SuspendLayout()
         SuspendLayout()
         AutoScaleMode = AutoScaleMode.Font
-        ClientSize = New Size(1120, 1020)
+        ClientSize = New Size(1480, 1020)
         FormBorderStyle = FormBorderStyle.FixedSingle
         MaximizeBox = False
         MinimizeBox = False
@@ -109,7 +117,7 @@ Partial Class RecorderHostForm
         mainLayout.ColumnCount = 1
         mainLayout.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 100.0F))
         mainLayout.Controls.Add(commonGroupBox, 0, 0)
-        mainLayout.Controls.Add(cameraGrid, 0, 1)
+        mainLayout.Controls.Add(contentLayout, 0, 1)
         mainLayout.Dock = DockStyle.Fill
         mainLayout.Location = New Point(0, 0)
         mainLayout.Margin = New Padding(0)
@@ -117,7 +125,7 @@ Partial Class RecorderHostForm
         mainLayout.RowCount = 2
         mainLayout.RowStyles.Add(New RowStyle(SizeType.AutoSize))
         mainLayout.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
-        mainLayout.Size = New Size(1120, 1020)
+        mainLayout.Size = New Size(1480, 1020)
         commonGroupBox.Controls.Add(commonPanel)
         commonGroupBox.Dock = DockStyle.Fill
         commonGroupBox.Font = New Font("Segoe UI", 9.0F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
@@ -125,7 +133,7 @@ Partial Class RecorderHostForm
         commonGroupBox.Margin = New Padding(8, 8, 8, 6)
         commonGroupBox.Name = "commonGroupBox"
         commonGroupBox.Padding = New Padding(8, 6, 8, 8)
-        commonGroupBox.Size = New Size(1104, 126)
+        commonGroupBox.Size = New Size(1464, 126)
         commonGroupBox.TabStop = False
         commonGroupBox.Text = "COMMON"
         commonPanel.AutoSize = True
@@ -156,7 +164,7 @@ Partial Class RecorderHostForm
         commonPanel.Margin = New Padding(0)
         commonPanel.Name = "commonPanel"
         commonPanel.Padding = New Padding(6, 4, 6, 2)
-        commonPanel.Size = New Size(1088, 96)
+        commonPanel.Size = New Size(1448, 96)
         commonPanel.WrapContents = True
         commonTitleLabel.AutoSize = True
         commonTitleLabel.Font = New Font("Segoe UI", 9.0F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
@@ -330,6 +338,18 @@ Partial Class RecorderHostForm
         totalCpuValueLabel.Name = "totalCpuValueLabel"
         totalCpuValueLabel.Size = New Size(32, 15)
         totalCpuValueLabel.Text = "0.0%"
+        contentLayout.ColumnCount = 2
+        contentLayout.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 1120.0F))
+        contentLayout.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 100.0F))
+        contentLayout.Controls.Add(cameraGrid, 0, 0)
+        contentLayout.Controls.Add(streamGroupBox, 1, 0)
+        contentLayout.Dock = DockStyle.Fill
+        contentLayout.Location = New Point(0, 140)
+        contentLayout.Margin = New Padding(0)
+        contentLayout.Name = "contentLayout"
+        contentLayout.RowCount = 1
+        contentLayout.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
+        contentLayout.Size = New Size(1480, 880)
         cameraGrid.ColumnCount = 2
         cameraGrid.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 50.0F))
         cameraGrid.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 50.0F))
@@ -338,7 +358,7 @@ Partial Class RecorderHostForm
         cameraGrid.Controls.Add(cam3GroupBox, 0, 1)
         cameraGrid.Controls.Add(cam4GroupBox, 1, 1)
         cameraGrid.Dock = DockStyle.Fill
-        cameraGrid.Location = New Point(0, 140)
+        cameraGrid.Location = New Point(0, 0)
         cameraGrid.Margin = New Padding(0)
         cameraGrid.Name = "cameraGrid"
         cameraGrid.Padding = New Padding(10, 0, 10, 10)
@@ -346,6 +366,21 @@ Partial Class RecorderHostForm
         cameraGrid.RowStyles.Add(New RowStyle(SizeType.Percent, 50.0F))
         cameraGrid.RowStyles.Add(New RowStyle(SizeType.Percent, 50.0F))
         cameraGrid.Size = New Size(1120, 880)
+        streamGroupBox.Controls.Add(streamRecorderControl)
+        streamGroupBox.Dock = DockStyle.Fill
+        streamGroupBox.Font = New Font("Segoe UI", 9.0F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
+        streamGroupBox.Location = New Point(1128, 8)
+        streamGroupBox.Margin = New Padding(8, 8, 10, 10)
+        streamGroupBox.Name = "streamGroupBox"
+        streamGroupBox.Padding = New Padding(8, 6, 8, 8)
+        streamGroupBox.Size = New Size(342, 862)
+        streamGroupBox.TabStop = False
+        streamGroupBox.Text = "STREAM / URL"
+        streamRecorderControl.Dock = DockStyle.Fill
+        streamRecorderControl.Location = New Point(8, 22)
+        streamRecorderControl.Margin = New Padding(0)
+        streamRecorderControl.Name = "streamRecorderControl"
+        streamRecorderControl.Size = New Size(326, 832)
         cam1GroupBox.Controls.Add(leftRecorderControl)
         cam1GroupBox.Dock = DockStyle.Fill
         cam1GroupBox.Font = New Font("Segoe UI", 9.0F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
@@ -422,7 +457,9 @@ Partial Class RecorderHostForm
         commonGroupBox.PerformLayout()
         commonPanel.ResumeLayout(False)
         commonPanel.PerformLayout()
+        contentLayout.ResumeLayout(False)
         cameraGrid.ResumeLayout(False)
+        streamGroupBox.ResumeLayout(False)
         cam1GroupBox.ResumeLayout(False)
         cam2GroupBox.ResumeLayout(False)
         cam3GroupBox.ResumeLayout(False)

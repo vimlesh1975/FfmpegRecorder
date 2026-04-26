@@ -132,6 +132,7 @@ Partial Public Class RecorderHostForm
 
         BackColor = appBackground
         mainLayout.BackColor = appBackground
+        contentLayout.BackColor = appBackground
         cameraGrid.BackColor = appBackground
 
         commonGroupBox.BackColor = commonBackground
@@ -143,6 +144,7 @@ Partial Public Class RecorderHostForm
         StyleCameraSection(cam2GroupBox, rightRecorderControl, cam2Background)
         StyleCameraSection(cam3GroupBox, thirdRecorderControl, cam3Background)
         StyleCameraSection(cam4GroupBox, fourthRecorderControl, cam4Background)
+        StyleStreamSection(commonBackground)
     End Sub
 
     Private Sub StyleCameraSection(groupBox As GroupBox, recorderControl As RecorderControl, baseColor As Color)
@@ -152,6 +154,15 @@ Partial Public Class RecorderHostForm
         groupBox.ForeColor = foreground
         recorderControl.BackColor = If(isDarkModeEnabled, LightenColor(baseColor, 8), LightenColor(baseColor, 10))
         recorderControl.DarkModeEnabled = isDarkModeEnabled
+    End Sub
+
+    Private Sub StyleStreamSection(baseColor As Color)
+        Dim foreground = If(isDarkModeEnabled, Color.FromArgb(236, 239, 242), Color.FromArgb(52, 60, 68))
+
+        streamGroupBox.BackColor = baseColor
+        streamGroupBox.ForeColor = foreground
+        streamRecorderControl.BackColor = If(isDarkModeEnabled, LightenColor(baseColor, 8), LightenColor(baseColor, 10))
+        streamRecorderControl.DarkModeEnabled = isDarkModeEnabled
     End Sub
 
     Private Sub ApplyCommonControlTheme(parentControl As Control, background As Color, foreground As Color)
