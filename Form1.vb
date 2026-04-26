@@ -134,6 +134,8 @@ Partial Public Class RecorderControl
     Private hasDisposedResources As Boolean
     Private darkModeEnabledValue As Boolean
     Private recordingStartedAtUtc As DateTime?
+    Private deckLinkInputAvailableValue As Boolean = True
+    Private deckLinkUnavailableReason As String = "No free DeckLink input available"
 
     Public Event CpuUsageChanged As EventHandler(Of CpuUsageChangedEventArgs)
 
@@ -183,6 +185,13 @@ Partial Public Class RecorderControl
     Public ReadOnly Property IsRecording As Boolean
         Get
             Return captureRunner IsNot Nothing
+        End Get
+    End Property
+
+    <Browsable(False), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)>
+    Public ReadOnly Property HasAvailableDeckLinkInput As Boolean
+        Get
+            Return deckLinkInputAvailableValue
         End Get
     End Property
 
@@ -609,14 +618,28 @@ Partial Public Class RecorderControl
 
         LoadOperatorSettings()
         InitializeDeckLinkSelector()
-        LoadDeckLinkDevices()
-        EnsureExclusiveDeviceSelection(saveIfSelectionChanged:=True)
+        Dim hasDeckLinkDevices = LoadDeckLinkDevices()
+        Dim hasExclusiveDevice = hasDeckLinkDevices AndAlso EnsureExclusiveDeviceSelection(saveIfSelectionChanged:=True)
+
+        If Not hasDeckLinkDevices Then
+            SetDeckLinkAvailability(False, "No DeckLink card detected")
+        End If
+
         UpdateStaticInfo()
-        StartIdlePreview()
+
+        If hasExclusiveDevice Then
+            StartIdlePreview()
+        End If
+
         cpuUsageTimer.Start()
     End Sub
 
     Private Sub UpdateStaticInfo()
+        If Not deckLinkInputAvailableValue Then
+            deviceValueLabel.Text = $"{GetRecordingPrefix()} | {deckLinkUnavailableReason}"
+            Return
+        End If
+
         Dim options = CreateDefaultOptions()
 
         deviceValueLabel.Text = $"{GetRecordingPrefix()} | {options.DeviceName} | 1080i50 | {options.ClipDurationSeconds} s {GetSelectedRecordingProfile().SummaryText} | L/R dBFS"
@@ -785,12 +808,12 @@ Partial Public Class RecorderControl
         suppressDeviceSelectionChanged = False
     End Sub
 
-    Private Sub LoadDeckLinkDevices()
+    Private Function LoadDeckLinkDevices() As Boolean
         Dim ffmpegPath = ResolveFfmpegPath()
         Dim deviceNames = GetDeckLinkDeviceNames(ffmpegPath)
 
         If deviceNames.Count = 0 Then
-            Return
+            Return False
         End If
 
         Dim preferredDeviceName = GetPreferredDefaultDeviceName()
@@ -819,19 +842,23 @@ Partial Public Class RecorderControl
         End Try
 
         UpdateStaticInfo()
-    End Sub
+        Return True
+    End Function
 
     Private Function EnsureExclusiveDeviceSelection(Optional saveIfSelectionChanged As Boolean = False) As Boolean
         Dim selectedDeviceName = GetSelectedDeviceName()
 
         If TryReserveSelectedDevice(selectedDeviceName) Then
             savedDeviceName = selectedDeviceName
+            SetDeckLinkAvailability(True)
             Return True
         End If
 
         Dim replacementDeviceName = FindAvailableDeviceName(selectedDeviceName)
 
         If String.IsNullOrWhiteSpace(replacementDeviceName) Then
+            ReleaseReservedDevice()
+            SetDeckLinkAvailability(False, "No free DeckLink input available")
             AppendLog($"No free DeckLink input is available for {GetRecordingPrefix()}.")
             Return False
         End If
@@ -846,6 +873,7 @@ Partial Public Class RecorderControl
 
         savedDeviceName = replacementDeviceName
         TryReserveSelectedDevice(replacementDeviceName)
+        SetDeckLinkAvailability(True)
         UpdateStaticInfo()
 
         If saveIfSelectionChanged Then
@@ -1071,6 +1099,8 @@ Partial Public Class RecorderControl
         End If
 
         If Not EnsureExclusiveDeviceSelection(saveIfSelectionChanged:=True) Then
+            TearDownAudioMonitor(fast:=True)
+            StopIdlePreview("No DeckLink input available.", fast:=True)
             UpdateStaticInfo()
             Return
         End If
@@ -1228,6 +1258,11 @@ Partial Public Class RecorderControl
     End Function
 
     Private Sub StartRecording(sender As Object, e As EventArgs)
+        If Not deckLinkInputAvailableValue Then
+            AppendLog($"Recording is disabled for {GetRecordingPrefix()}: {deckLinkUnavailableReason}.")
+            Return
+        End If
+
         If captureRunner IsNot Nothing Then
             Return
         End If
@@ -1302,11 +1337,33 @@ Partial Public Class RecorderControl
     End Sub
 
     Private Sub UpdateUiState(isRecording As Boolean)
-        recordButton.Enabled = Not isRecording
+        recordButton.Enabled = deckLinkInputAvailableValue AndAlso Not isRecording
         stopButton.Enabled = isRecording
-        intervalUpDown.Enabled = Not isRecording
-        profileComboBox.Enabled = Not isRecording
-        deviceComboBox.Enabled = Not isRecording
+        intervalUpDown.Enabled = deckLinkInputAvailableValue AndAlso Not isRecording
+        profileComboBox.Enabled = deckLinkInputAvailableValue AndAlso Not isRecording
+        deviceComboBox.Enabled = deckLinkInputAvailableValue AndAlso Not isRecording
+    End Sub
+
+    Private Sub SetDeckLinkAvailability(isAvailable As Boolean, Optional unavailableReason As String = "No free DeckLink input available")
+        deckLinkInputAvailableValue = isAvailable
+        deckLinkUnavailableReason = unavailableReason
+
+        If isAvailable Then
+            statusValueLabel.Text = "Idle"
+            statusValueLabel.ForeColor = Color.DarkGreen
+            previewStateLabel.Text = "Preview starting..."
+        Else
+            statusValueLabel.Text = "No Input"
+            statusValueLabel.ForeColor = Color.DarkOrange
+            previewStateLabel.Text = deckLinkUnavailableReason
+            previewStateLabel.ForeColor = Color.DarkOrange
+            previewStateLabel.Visible = True
+            recordingStartedAtUtc = Nothing
+            UpdateRecordingElapsedDisplay()
+        End If
+
+        UpdateUiState(captureRunner IsNot Nothing)
+        UpdateRecorderStatusAccent()
     End Sub
 
     Private Sub AppendLog(message As String)
@@ -1376,6 +1433,8 @@ Partial Public Class RecorderControl
     Private Sub UpdateRecorderStatusAccent()
         If captureRunner IsNot Nothing Then
             recorderStatusStrip.BackColor = Color.FromArgb(220, 53, 69)
+        ElseIf Not deckLinkInputAvailableValue Then
+            recorderStatusStrip.BackColor = Color.FromArgb(245, 159, 0)
         ElseIf String.Equals(statusValueLabel.Text, "Idle", StringComparison.OrdinalIgnoreCase) Then
             recorderStatusStrip.BackColor = Color.FromArgb(47, 158, 68)
         Else
