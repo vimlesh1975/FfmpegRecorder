@@ -109,6 +109,7 @@ Partial Public Class RecorderControl
     Private ReadOnly profileComboBox As New ComboBox()
     Private ReadOnly recordButton As New Button()
     Private ReadOnly stopButton As New Button()
+    Private ReadOnly includeInRecordAllCheckBox As New CheckBox()
     Private ReadOnly openOutputFolderButton As New Button()
     Private ReadOnly logTextBox As New TextBox()
     Private ReadOnly recordingPreviewRetryTimer As New Timer() With {.Interval = 250}
@@ -193,6 +194,16 @@ Partial Public Class RecorderControl
         Get
             Return deckLinkInputAvailableValue
         End Get
+    End Property
+
+    <Browsable(False), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)>
+    Public Property IncludeInRecordAll As Boolean
+        Get
+            Return includeInRecordAllCheckBox.Checked
+        End Get
+        Set(value As Boolean)
+            includeInRecordAllCheckBox.Checked = value
+        End Set
     End Property
 
     <Browsable(False), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)>
@@ -444,11 +455,12 @@ Partial Public Class RecorderControl
 
         Dim buttonRow As New TableLayoutPanel() With {
             .AutoSize = True,
-            .ColumnCount = 3,
+            .ColumnCount = 4,
             .RowCount = 1,
             .Anchor = AnchorStyles.Left,
             .Margin = New Padding(0, 4, 0, 0)
         }
+        buttonRow.ColumnStyles.Add(New ColumnStyle(SizeType.AutoSize))
         buttonRow.ColumnStyles.Add(New ColumnStyle(SizeType.AutoSize))
         buttonRow.ColumnStyles.Add(New ColumnStyle(SizeType.AutoSize))
         buttonRow.ColumnStyles.Add(New ColumnStyle(SizeType.AutoSize))
@@ -464,6 +476,13 @@ Partial Public Class RecorderControl
         stopButton.AutoSize = False
         stopButton.Size = New Size(64, 28)
         stopButton.Margin = New Padding(0, 0, 4, 0)
+
+        includeInRecordAllCheckBox.AutoSize = True
+        includeInRecordAllCheckBox.Checked = True
+        includeInRecordAllCheckBox.CheckState = CheckState.Checked
+        includeInRecordAllCheckBox.Text = "Record All"
+        includeInRecordAllCheckBox.Anchor = AnchorStyles.Left
+        includeInRecordAllCheckBox.Margin = New Padding(8, 5, 8, 0)
 
         recordingElapsedLabel.AutoSize = True
         recordingElapsedLabel.Font = New Font("Segoe UI", 9.0F, FontStyle.Bold)
@@ -492,7 +511,8 @@ Partial Public Class RecorderControl
 
         buttonRow.Controls.Add(recordButton, 0, 0)
         buttonRow.Controls.Add(stopButton, 1, 0)
-        buttonRow.Controls.Add(recordingElapsedLabel, 2, 0)
+        buttonRow.Controls.Add(includeInRecordAllCheckBox, 2, 0)
+        buttonRow.Controls.Add(recordingElapsedLabel, 3, 0)
 
         panel.Controls.Add(headerRow, 0, 0)
         panel.Controls.Add(deviceRow, 0, 1)
@@ -581,6 +601,9 @@ Partial Public Class RecorderControl
             End If
 
             If TypeOf childControl Is Label AndAlso childControl IsNot statusValueLabel AndAlso childControl IsNot previewStateLabel Then
+                childControl.ForeColor = textColor
+            ElseIf TypeOf childControl Is CheckBox Then
+                childControl.BackColor = BackColor
                 childControl.ForeColor = textColor
             ElseIf TypeOf childControl Is ComboBox OrElse TypeOf childControl Is NumericUpDown Then
                 childControl.BackColor = inputBackground
@@ -1342,6 +1365,7 @@ Partial Public Class RecorderControl
         intervalUpDown.Enabled = deckLinkInputAvailableValue AndAlso Not isRecording
         profileComboBox.Enabled = deckLinkInputAvailableValue AndAlso Not isRecording
         deviceComboBox.Enabled = deckLinkInputAvailableValue AndAlso Not isRecording
+        includeInRecordAllCheckBox.Enabled = deckLinkInputAvailableValue AndAlso Not isRecording
     End Sub
 
     Private Sub SetDeckLinkAvailability(isAvailable As Boolean, Optional unavailableReason As String = "No free DeckLink input available")

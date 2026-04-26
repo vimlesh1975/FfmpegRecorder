@@ -247,7 +247,9 @@ Partial Public Class RecorderHostForm
 
     Private Sub OnRecordAllClicked(sender As Object, e As EventArgs)
         For Each recorderControl In GetRecorderControls()
-            recorderControl.StartRecordingRequested()
+            If recorderControl.IncludeInRecordAll Then
+                recorderControl.StartRecordingRequested()
+            End If
         Next
     End Sub
 
