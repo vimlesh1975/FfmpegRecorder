@@ -101,6 +101,8 @@ Partial Public Class RecorderControl
     Private ReadOnly previewPictureBox As New PictureBox()
     Private ReadOnly previewStateLabel As New Label()
     Private ReadOnly statusValueLabel As New Label()
+    Private ReadOnly recorderStatusStrip As New Panel()
+    Private ReadOnly recordingElapsedLabel As New Label()
     Private ReadOnly deviceComboBox As New ComboBox()
     Private ReadOnly deviceValueLabel As New Label()
     Private ReadOnly intervalUpDown As New NumericUpDown()
@@ -131,6 +133,7 @@ Partial Public Class RecorderControl
     Private hasLoadedOnce As Boolean
     Private hasDisposedResources As Boolean
     Private darkModeEnabledValue As Boolean
+    Private recordingStartedAtUtc As DateTime?
 
     Public Event CpuUsageChanged As EventHandler(Of CpuUsageChangedEventArgs)
 
@@ -303,17 +306,24 @@ Partial Public Class RecorderControl
 
         Dim rootLayout As New TableLayoutPanel() With {
             .Dock = DockStyle.Fill,
-            .ColumnCount = 1,
+            .ColumnCount = 2,
             .Padding = New Padding(8),
             .RowCount = 3
         }
+        rootLayout.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 6))
+        rootLayout.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 100.0F))
         rootLayout.RowStyles.Add(New RowStyle(SizeType.AutoSize))
         rootLayout.RowStyles.Add(New RowStyle(SizeType.Absolute, PreviewHeight))
         rootLayout.RowStyles.Add(New RowStyle(SizeType.Absolute, LogHeight))
 
-        rootLayout.Controls.Add(BuildActionPanel(), 0, 0)
-        rootLayout.Controls.Add(BuildPreviewGroup(), 0, 1)
-        rootLayout.Controls.Add(BuildLogGroup(), 0, 2)
+        recorderStatusStrip.Dock = DockStyle.Fill
+        recorderStatusStrip.Margin = New Padding(0, 0, 8, 0)
+
+        rootLayout.Controls.Add(recorderStatusStrip, 0, 0)
+        rootLayout.SetRowSpan(recorderStatusStrip, 3)
+        rootLayout.Controls.Add(BuildActionPanel(), 1, 0)
+        rootLayout.Controls.Add(BuildPreviewGroup(), 1, 1)
+        rootLayout.Controls.Add(BuildLogGroup(), 1, 2)
 
         Controls.Add(rootLayout)
         ResumeLayout(True)
@@ -425,11 +435,12 @@ Partial Public Class RecorderControl
 
         Dim buttonRow As New TableLayoutPanel() With {
             .AutoSize = True,
-            .ColumnCount = 2,
+            .ColumnCount = 3,
             .RowCount = 1,
             .Anchor = AnchorStyles.Left,
             .Margin = New Padding(0, 4, 0, 0)
         }
+        buttonRow.ColumnStyles.Add(New ColumnStyle(SizeType.AutoSize))
         buttonRow.ColumnStyles.Add(New ColumnStyle(SizeType.AutoSize))
         buttonRow.ColumnStyles.Add(New ColumnStyle(SizeType.AutoSize))
         buttonRow.RowStyles.Add(New RowStyle(SizeType.AutoSize))
@@ -444,6 +455,13 @@ Partial Public Class RecorderControl
         stopButton.AutoSize = False
         stopButton.Size = New Size(64, 28)
         stopButton.Margin = New Padding(0, 0, 4, 0)
+
+        recordingElapsedLabel.AutoSize = True
+        recordingElapsedLabel.Font = New Font("Segoe UI", 9.0F, FontStyle.Bold)
+        recordingElapsedLabel.Text = "REC 00:00:00"
+        recordingElapsedLabel.Visible = False
+        recordingElapsedLabel.Anchor = AnchorStyles.Left
+        recordingElapsedLabel.Margin = New Padding(8, 6, 0, 0)
 
         deviceValueLabel.AutoSize = True
         deviceValueLabel.ForeColor = Color.DimGray
@@ -465,6 +483,7 @@ Partial Public Class RecorderControl
 
         buttonRow.Controls.Add(recordButton, 0, 0)
         buttonRow.Controls.Add(stopButton, 1, 0)
+        buttonRow.Controls.Add(recordingElapsedLabel, 2, 0)
 
         panel.Controls.Add(headerRow, 0, 0)
         panel.Controls.Add(deviceRow, 0, 1)
@@ -542,6 +561,8 @@ Partial Public Class RecorderControl
 
         ApplyThemeColorsRecursive(Me, textColor, inputBackground, inputForeground, logBackground)
         deviceValueLabel.ForeColor = mutedTextColor
+        recordingElapsedLabel.ForeColor = Color.FromArgb(230, 73, 73)
+        UpdateRecorderStatusAccent()
     End Sub
 
     Private Sub ApplyThemeColorsRecursive(parentControl As Control, textColor As Color, inputBackground As Color, inputForeground As Color, logBackground As Color)
@@ -1249,8 +1270,11 @@ Partial Public Class RecorderControl
             End If
 
             UpdateUiState(True)
+            recordingStartedAtUtc = DateTime.UtcNow
+            UpdateRecordingElapsedDisplay()
             statusValueLabel.Text = "Recording"
             statusValueLabel.ForeColor = Color.Firebrick
+            UpdateRecorderStatusAccent()
             previewStateLabel.Text = If(previewConnected, If(audioMonitorRunner IsNot Nothing, "Live preview and speaker monitoring active while recording.", "Live preview active while recording."), "Recording started. Preview is reconnecting...")
             previewStateLabel.ForeColor = Color.DarkGreen
         Catch ex As Exception
@@ -1259,6 +1283,9 @@ Partial Public Class RecorderControl
             UpdateUiState(False)
             statusValueLabel.Text = "Idle"
             statusValueLabel.ForeColor = Color.DarkGreen
+            recordingStartedAtUtc = Nothing
+            UpdateRecordingElapsedDisplay()
+            UpdateRecorderStatusAccent()
             MessageBox.Show(Me, GetFriendlyProcessError(ex), "Unable To Start Recording", MessageBoxButtons.OK, MessageBoxIcon.Error)
             StartIdlePreview()
         End Try
@@ -1332,6 +1359,28 @@ Partial Public Class RecorderControl
         lastCpuSamples = activeSamples
         currentCpuUsagePercentValue = totalCpuPercent
         RaiseEvent CpuUsageChanged(Me, New CpuUsageChangedEventArgs(currentCpuUsagePercentValue))
+        UpdateRecordingElapsedDisplay()
+    End Sub
+
+    Private Sub UpdateRecordingElapsedDisplay()
+        If Not recordingStartedAtUtc.HasValue Then
+            recordingElapsedLabel.Visible = False
+            Return
+        End If
+
+        Dim elapsed = DateTime.UtcNow - recordingStartedAtUtc.Value
+        recordingElapsedLabel.Text = $"REC {CInt(Math.Floor(elapsed.TotalHours)):00}:{elapsed.Minutes:00}:{elapsed.Seconds:00}"
+        recordingElapsedLabel.Visible = True
+    End Sub
+
+    Private Sub UpdateRecorderStatusAccent()
+        If captureRunner IsNot Nothing Then
+            recorderStatusStrip.BackColor = Color.FromArgb(220, 53, 69)
+        ElseIf String.Equals(statusValueLabel.Text, "Idle", StringComparison.OrdinalIgnoreCase) Then
+            recorderStatusStrip.BackColor = Color.FromArgb(47, 158, 68)
+        Else
+            recorderStatusStrip.BackColor = Color.FromArgb(245, 159, 0)
+        End If
     End Sub
 
     Private Function GetActiveProcessIds() As IEnumerable(Of Integer)
@@ -1610,6 +1659,9 @@ Partial Public Class RecorderControl
 
         statusValueLabel.Text = If(exitCode = 0, "Idle", $"Stopped (Exit {exitCode})")
         statusValueLabel.ForeColor = If(exitCode = 0, Color.DarkGreen, Color.DarkOrange)
+        recordingStartedAtUtc = Nothing
+        UpdateRecordingElapsedDisplay()
+        UpdateRecorderStatusAccent()
         AppendLog($"Recording exited with code {exitCode}.")
 
         TearDownCaptureRunner()

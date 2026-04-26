@@ -28,6 +28,7 @@ Partial Public Class RecorderHostForm
 
     Public Sub New()
         InitializeComponent()
+        OrganizeCommonPanel()
         Text = $"{Text} {GetBuildTimestampSuffix()}"
         ApplyVisualTheme()
 
@@ -58,6 +59,57 @@ Partial Public Class RecorderHostForm
         ApplyAudioListenSelection()
         UpdateCpuLabels()
     End Sub
+
+    Private Sub OrganizeCommonPanel()
+        commonPanel.SuspendLayout()
+        commonPanel.Controls.Clear()
+
+        commonPanel.Controls.Add(BuildCommonSection("Setup", profileLabel, profileComboBox, intervalLabel, intervalUpDown))
+        commonPanel.Controls.Add(BuildCommonSection("Recording", recordAllButton, stopAllButton, openRecordingsButton, deleteAllButton))
+        commonPanel.Controls.Add(BuildCommonSection("Audio", audioListenPanel))
+        commonPanel.Controls.Add(BuildCommonSection("View", darkModeCheckBox))
+        commonPanel.Controls.Add(BuildCommonSection(
+            "CPU",
+            cam1CpuLabel,
+            cam1CpuValueLabel,
+            cam2CpuLabel,
+            cam2CpuValueLabel,
+            cam3CpuLabel,
+            cam3CpuValueLabel,
+            cam4CpuLabel,
+            cam4CpuValueLabel,
+            totalCpuLabel,
+            totalCpuValueLabel))
+
+        commonPanel.ResumeLayout(True)
+    End Sub
+
+    Private Function BuildCommonSection(title As String, ParamArray controls As Control()) As FlowLayoutPanel
+        Dim sectionPanel As New FlowLayoutPanel() With {
+            .AutoSize = True,
+            .AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            .FlowDirection = FlowDirection.LeftToRight,
+            .Margin = New Padding(0, 0, 12, 8),
+            .Padding = New Padding(8, 4, 8, 4),
+            .WrapContents = False
+        }
+
+        Dim titleLabel As New Label() With {
+            .AutoSize = True,
+            .Font = New Font("Segoe UI", 9.0F, FontStyle.Bold, GraphicsUnit.Point, CByte(0)),
+            .Margin = New Padding(0, 4, 10, 0),
+            .Text = title
+        }
+
+        sectionPanel.Controls.Add(titleLabel)
+
+        For Each childControl In controls
+            childControl.Margin = New Padding(0, Math.Max(0, childControl.Margin.Top), 8, 0)
+            sectionPanel.Controls.Add(childControl)
+        Next
+
+        Return sectionPanel
+    End Function
 
     Private Shared Function GetBuildTimestampSuffix() As String
         Dim executablePath = Application.ExecutablePath

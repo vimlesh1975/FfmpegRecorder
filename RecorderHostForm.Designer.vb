@@ -125,7 +125,7 @@ Partial Class RecorderHostForm
         commonGroupBox.Margin = New Padding(8, 8, 8, 6)
         commonGroupBox.Name = "commonGroupBox"
         commonGroupBox.Padding = New Padding(8, 6, 8, 8)
-        commonGroupBox.Size = New Size(1104, 103)
+        commonGroupBox.Size = New Size(1104, 126)
         commonGroupBox.TabStop = False
         commonGroupBox.Text = "COMMON"
         commonPanel.AutoSize = True
@@ -156,7 +156,7 @@ Partial Class RecorderHostForm
         commonPanel.Margin = New Padding(0)
         commonPanel.Name = "commonPanel"
         commonPanel.Padding = New Padding(6, 4, 6, 2)
-        commonPanel.Size = New Size(1088, 73)
+        commonPanel.Size = New Size(1088, 96)
         commonPanel.WrapContents = True
         commonTitleLabel.AutoSize = True
         commonTitleLabel.Font = New Font("Segoe UI", 9.0F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
@@ -338,14 +338,14 @@ Partial Class RecorderHostForm
         cameraGrid.Controls.Add(cam3GroupBox, 0, 1)
         cameraGrid.Controls.Add(cam4GroupBox, 1, 1)
         cameraGrid.Dock = DockStyle.Fill
-        cameraGrid.Location = New Point(0, 117)
+        cameraGrid.Location = New Point(0, 140)
         cameraGrid.Margin = New Padding(0)
         cameraGrid.Name = "cameraGrid"
         cameraGrid.Padding = New Padding(10, 0, 10, 10)
         cameraGrid.RowCount = 2
         cameraGrid.RowStyles.Add(New RowStyle(SizeType.Percent, 50.0F))
         cameraGrid.RowStyles.Add(New RowStyle(SizeType.Percent, 50.0F))
-        cameraGrid.Size = New Size(1120, 903)
+        cameraGrid.Size = New Size(1120, 880)
         cam1GroupBox.Controls.Add(leftRecorderControl)
         cam1GroupBox.Dock = DockStyle.Fill
         cam1GroupBox.Font = New Font("Segoe UI", 9.0F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
@@ -353,7 +353,7 @@ Partial Class RecorderHostForm
         cam1GroupBox.Margin = New Padding(8)
         cam1GroupBox.Name = "cam1GroupBox"
         cam1GroupBox.Padding = New Padding(8, 6, 8, 8)
-        cam1GroupBox.Size = New Size(542, 428)
+        cam1GroupBox.Size = New Size(542, 416)
         cam1GroupBox.TabStop = False
         cam1GroupBox.Text = "CAM1"
         leftRecorderControl.CameraName = "CAM1"
@@ -362,7 +362,7 @@ Partial Class RecorderHostForm
         leftRecorderControl.Margin = New Padding(0)
         leftRecorderControl.Name = "leftRecorderControl"
         leftRecorderControl.SettingsKey = "CAM1"
-        leftRecorderControl.Size = New Size(526, 398)
+        leftRecorderControl.Size = New Size(526, 386)
         cam2GroupBox.Controls.Add(rightRecorderControl)
         cam2GroupBox.Dock = DockStyle.Fill
         cam2GroupBox.Font = New Font("Segoe UI", 9.0F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
@@ -370,7 +370,7 @@ Partial Class RecorderHostForm
         cam2GroupBox.Margin = New Padding(8)
         cam2GroupBox.Name = "cam2GroupBox"
         cam2GroupBox.Padding = New Padding(8, 6, 8, 8)
-        cam2GroupBox.Size = New Size(542, 428)
+        cam2GroupBox.Size = New Size(542, 416)
         cam2GroupBox.TabStop = False
         cam2GroupBox.Text = "CAM2"
         rightRecorderControl.CameraName = "CAM2"
@@ -379,15 +379,15 @@ Partial Class RecorderHostForm
         rightRecorderControl.Margin = New Padding(0)
         rightRecorderControl.Name = "rightRecorderControl"
         rightRecorderControl.SettingsKey = "CAM2"
-        rightRecorderControl.Size = New Size(526, 398)
+        rightRecorderControl.Size = New Size(526, 386)
         cam3GroupBox.Controls.Add(thirdRecorderControl)
         cam3GroupBox.Dock = DockStyle.Fill
         cam3GroupBox.Font = New Font("Segoe UI", 9.0F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
-        cam3GroupBox.Location = New Point(18, 396)
+        cam3GroupBox.Location = New Point(18, 408)
         cam3GroupBox.Margin = New Padding(8)
         cam3GroupBox.Name = "cam3GroupBox"
         cam3GroupBox.Padding = New Padding(8, 6, 8, 8)
-        cam3GroupBox.Size = New Size(542, 433)
+        cam3GroupBox.Size = New Size(542, 421)
         cam3GroupBox.TabStop = False
         cam3GroupBox.Text = "CAM3"
         thirdRecorderControl.CameraName = "CAM3"
@@ -396,15 +396,15 @@ Partial Class RecorderHostForm
         thirdRecorderControl.Margin = New Padding(0)
         thirdRecorderControl.Name = "thirdRecorderControl"
         thirdRecorderControl.SettingsKey = "CAM3"
-        thirdRecorderControl.Size = New Size(526, 403)
+        thirdRecorderControl.Size = New Size(526, 391)
         cam4GroupBox.Controls.Add(fourthRecorderControl)
         cam4GroupBox.Dock = DockStyle.Fill
         cam4GroupBox.Font = New Font("Segoe UI", 9.0F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
-        cam4GroupBox.Location = New Point(560, 396)
+        cam4GroupBox.Location = New Point(560, 408)
         cam4GroupBox.Margin = New Padding(8)
         cam4GroupBox.Name = "cam4GroupBox"
         cam4GroupBox.Padding = New Padding(8, 6, 8, 8)
-        cam4GroupBox.Size = New Size(542, 433)
+        cam4GroupBox.Size = New Size(542, 421)
         cam4GroupBox.TabStop = False
         cam4GroupBox.Text = "CAM4"
         fourthRecorderControl.CameraName = "CAM4"
@@ -413,7 +413,7 @@ Partial Class RecorderHostForm
         fourthRecorderControl.Margin = New Padding(0)
         fourthRecorderControl.Name = "fourthRecorderControl"
         fourthRecorderControl.SettingsKey = "CAM4"
-        fourthRecorderControl.Size = New Size(526, 403)
+        fourthRecorderControl.Size = New Size(526, 391)
         Controls.Add(mainLayout)
         CType(intervalUpDown, System.ComponentModel.ISupportInitialize).EndInit()
         mainLayout.ResumeLayout(False)
