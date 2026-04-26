@@ -24,10 +24,11 @@ Partial Public Class RecorderHostForm
     Private hasSystemCpuSample As Boolean
     Private lastSystemCpuSample As SystemCpuSample
     Private suppressSharedOperatorEvents As Boolean
-    Private isDarkModeEnabled As Boolean
+    Private isDarkModeEnabled As Boolean = True
 
     Public Sub New()
         InitializeComponent()
+        Text = $"{Text} {GetBuildTimestampSuffix()}"
         ApplyVisualTheme()
 
         AddHandler leftRecorderControl.CpuUsageChanged, AddressOf OnRecorderCpuUsageChanged
@@ -57,6 +58,16 @@ Partial Public Class RecorderHostForm
         ApplyAudioListenSelection()
         UpdateCpuLabels()
     End Sub
+
+    Private Shared Function GetBuildTimestampSuffix() As String
+        Dim executablePath = Application.ExecutablePath
+
+        If Not String.IsNullOrWhiteSpace(executablePath) AndAlso File.Exists(executablePath) Then
+            Return File.GetLastWriteTime(executablePath).ToString("ddMMyyyy_HHmmss")
+        End If
+
+        Return DateTime.Now.ToString("ddMMyyyy_HHmmss")
+    End Function
 
     Private Sub ApplyVisualTheme()
         Dim appBackground = If(isDarkModeEnabled, Color.FromArgb(28, 31, 36), Color.FromArgb(232, 236, 238))
