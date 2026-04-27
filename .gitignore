@@ -11,6 +11,7 @@ bin/Debug/net10.0-windows/*
 !bin/Debug/net10.0-windows/ffplay.exe
 !bin/Debug/net10.0-windows/ffprobe.exe
 !bin/Debug/net10.0-windows/yt-dlp.exe
+!bin/Debug/net10.0-windows/ffmbc-0.7.4-x64.exe
 !bin/Debug/net10.0-windows/LICENSE
 obj/
 .vs/
