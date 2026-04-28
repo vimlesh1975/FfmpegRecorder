@@ -22,6 +22,11 @@
       <TimestampedExecutablePath>$(TargetDir)$(AssemblyName)_$([System.DateTime]::Now.ToString('yyyyMMdd_HHmmss')).exe</TimestampedExecutablePath>
     </PropertyGroup>
 
+    <ItemGroup>
+      <ExistingTimestampedExecutables Include="$(TargetDir)$(AssemblyName)_*.exe" />
+    </ItemGroup>
+
+    <Delete Files="@(ExistingTimestampedExecutables)" />
     <Copy SourceFiles="$(ExecutableSourcePath)" DestinationFiles="$(TimestampedExecutablePath)" />
     <Message Importance="High" Text="Created timestamped executable: $(TimestampedExecutablePath)" />
   </Target>

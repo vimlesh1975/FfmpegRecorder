@@ -6,6 +6,7 @@ bin/Debug/net10.0-windows/*
 !bin/Debug/net10.0-windows/FfmpegRecorder.deps.json
 !bin/Debug/net10.0-windows/FfmpegRecorder.dll
 !bin/Debug/net10.0-windows/FfmpegRecorder.exe
+!bin/Debug/net10.0-windows/FfmpegRecorder_*.exe
 !bin/Debug/net10.0-windows/FfmpegRecorder.runtimeconfig.json
 !bin/Debug/net10.0-windows/ffmpeg.exe
 !bin/Debug/net10.0-windows/ffplay.exe
