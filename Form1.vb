@@ -4,6 +4,7 @@ Imports System.IO
 Imports System.Net
 Imports System.Net.Sockets
 Imports System.Text
+Imports System.Threading.Tasks
 
 Partial Public Class RecorderControl
     Private NotInheritable Class OperatorSettings
@@ -28,17 +29,19 @@ Partial Public Class RecorderControl
     End Class
 
     Private NotInheritable Class RecordingProfileDefinition
-        Public Sub New(displayName As String, containerExtension As String, outputOptions As String, Optional videoFilter As String = Nothing)
+        Public Sub New(displayName As String, containerExtension As String, outputOptions As String, Optional videoFilter As String = Nothing, Optional useFfmbcFinalize As Boolean = False)
             Me.DisplayName = displayName
             Me.ContainerExtension = containerExtension
             Me.OutputOptions = outputOptions
             Me.VideoFilter = videoFilter
+            Me.UseFfmbcFinalize = useFfmbcFinalize
         End Sub
 
         Public ReadOnly Property DisplayName As String
         Public ReadOnly Property ContainerExtension As String
         Public ReadOnly Property OutputOptions As String
         Public ReadOnly Property VideoFilter As String
+        Public ReadOnly Property UseFfmbcFinalize As Boolean
 
         Public ReadOnly Property SummaryText As String
             Get
@@ -64,6 +67,12 @@ Partial Public Class RecorderControl
         "XDCAM HD422",
         ".mxf",
         "-c:v mpeg2video -pix_fmt yuv422p -b:v 50000k -minrate 50000k -maxrate 50000k -bufsize 17825792 -rc_init_occupancy 17825792 -g 12 -bf 2 -flags +ildct+ilme -top 1 -qmin 1 -qmax 12 -dc 10 -intra_vlc 1 -color_primaries bt709 -color_trc bt709 -colorspace bt709 -c:a pcm_s16le -ar 48000 -ac 2"
+    )
+    Private ReadOnly xdcamSonyCompatibleProfile As New RecordingProfileDefinition(
+        "XDCAM Sony Compatible",
+        ".mxf",
+        "-c:v mpeg2video -pix_fmt yuv422p -b:v 50000k -minrate 50000k -maxrate 50000k -bufsize 17825792 -rc_init_occupancy 17825792 -g 12 -bf 2 -flags +ildct+ilme -top 1 -qmin 1 -qmax 12 -dc 10 -intra_vlc 1 -color_primaries bt709 -color_trc bt709 -colorspace bt709 -c:a pcm_s24le -ar 48000",
+        useFfmbcFinalize:=True
     )
     Private ReadOnly mp4HighResProfile As New RecordingProfileDefinition(
         "MP4 High Quality",
@@ -114,6 +123,7 @@ Partial Public Class RecorderControl
     Private ReadOnly logTextBox As New TextBox()
     Private ReadOnly recordingPreviewRetryTimer As New Timer() With {.Interval = 250}
     Private ReadOnly audioMonitorRetryTimer As New Timer() With {.Interval = 500}
+    Private ReadOnly ffmbcFinalizeTimer As New Timer() With {.Interval = 1000}
     Private ReadOnly cpuUsageTimer As New Timer() With {.Interval = 1000}
 
     Private WithEvents captureRunner As FfmpegProcessRunner
@@ -137,6 +147,14 @@ Partial Public Class RecorderControl
     Private recordingStartedAtUtc As DateTime?
     Private deckLinkInputAvailableValue As Boolean = True
     Private deckLinkUnavailableReason As String = "No free DeckLink input available"
+    Private isFinalizingRecordingValue As Boolean
+    Private currentRecordingUsesFfmbcFinalize As Boolean
+    Private currentRecordingTempOutputFolder As String
+    Private currentRecordingFinalOutputFolder As String
+    Private ReadOnly ffmbcFinalizeSync As New Object()
+    Private ReadOnly ffmbcProcessedTempFiles As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+    Private ReadOnly ffmbcProcessingTempFiles As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+    Private ffmbcBackgroundFinalizeTask As Task
 
     Public Event CpuUsageChanged As EventHandler(Of CpuUsageChangedEventArgs)
 
@@ -307,6 +325,7 @@ Partial Public Class RecorderControl
         UpdateUiState(False)
         AddHandler recordingPreviewRetryTimer.Tick, AddressOf OnRecordingPreviewRetryTick
         AddHandler audioMonitorRetryTimer.Tick, AddressOf OnAudioMonitorRetryTick
+        AddHandler ffmbcFinalizeTimer.Tick, AddressOf OnFfmbcFinalizeTimerTick
         AddHandler cpuUsageTimer.Tick, AddressOf OnCpuUsageTimerTick
         AddHandler Load, AddressOf RecorderControl_Load
     End Sub
@@ -399,12 +418,13 @@ Partial Public Class RecorderControl
         }
 
         profileComboBox.DropDownStyle = ComboBoxStyle.DropDownList
-        profileComboBox.Width = 136
-        profileComboBox.DropDownWidth = 160
+        profileComboBox.Width = 190
+        profileComboBox.DropDownWidth = 220
         profileComboBox.Anchor = AnchorStyles.Left
         profileComboBox.Margin = New Padding(0, 3, 0, 3)
         profileComboBox.Items.AddRange(New Object() {
             xdcamHd422Profile,
+            xdcamSonyCompatibleProfile,
             mp4HighResProfile,
             mp4LowResProfile,
             proResProxyProfile,
@@ -682,7 +702,8 @@ Partial Public Class RecorderControl
             .ClipDurationSeconds = GetSelectedClipDurationSeconds(),
             .ContainerExtension = selectedProfile.ContainerExtension,
             .VideoFilter = selectedProfile.VideoFilter,
-            .OutputOptions = selectedProfile.OutputOptions
+            .OutputOptions = selectedProfile.OutputOptions,
+            .UseSonyCompatibleAudioLayout = selectedProfile.UseFfmbcFinalize
         }
     End Function
 
@@ -1161,6 +1182,297 @@ Partial Public Class RecorderControl
         Return Nothing
     End Function
 
+    Private Function ResolveFfmbcPath() As String
+        Dim primaryPath = Path.Combine(AppContext.BaseDirectory, "ffmbc.exe")
+
+        If File.Exists(primaryPath) Then
+            Return primaryPath
+        End If
+
+        For Each candidatePath In Directory.EnumerateFiles(AppContext.BaseDirectory, "ffmbc*.exe")
+            If File.Exists(candidatePath) Then
+                Return candidatePath
+            End If
+        Next
+
+        Return Nothing
+    End Function
+
+    Private Function CloneOptionsWithOutputFolder(sourceOptions As RecorderOptions, outputFolder As String) As RecorderOptions
+        Return New RecorderOptions With {
+            .FfmpegPath = sourceOptions.FfmpegPath,
+            .DeviceName = sourceOptions.DeviceName,
+            .FormatCode = sourceOptions.FormatCode,
+            .AudioInput = sourceOptions.AudioInput,
+            .Channels = sourceOptions.Channels,
+            .OutputFolder = outputFolder,
+            .FilePrefix = sourceOptions.FilePrefix,
+            .ClipDurationSeconds = sourceOptions.ClipDurationSeconds,
+            .ContainerExtension = sourceOptions.ContainerExtension,
+            .VideoFilter = sourceOptions.VideoFilter,
+            .OutputOptions = sourceOptions.OutputOptions,
+            .UseSonyCompatibleAudioLayout = sourceOptions.UseSonyCompatibleAudioLayout
+        }
+    End Function
+
+    Private Function CreateFfmbcTempOutputFolder(finalOutputFolder As String) As String
+        Dim tempFolder = Path.Combine(finalOutputFolder, ".ffmbc-temp", GetRecordingPrefix(), DateTime.Now.ToString("yyyyMMdd_HHmmss_fff"))
+        Directory.CreateDirectory(tempFolder)
+        Return tempFolder
+    End Function
+
+    Private Sub ResetFfmbcFinalizeState()
+        SyncLock ffmbcFinalizeSync
+            ffmbcProcessedTempFiles.Clear()
+            ffmbcProcessingTempFiles.Clear()
+            ffmbcBackgroundFinalizeTask = Nothing
+        End SyncLock
+    End Sub
+
+    Private Function BuildFfmbcSonyCompatibleArguments(inputFilePath As String, outputFilePath As String) As String
+        Return $"-y -i {Quote(inputFilePath)} -an -target xdcamhd422 -tff -vtag xd5c {Quote(outputFilePath)} " &
+            "-acodec pcm_s24le -ar 48000 -newaudio -map_audio_channel 0:1:0:0:1:0 " &
+            "-acodec pcm_s24le -ar 48000 -newaudio -map_audio_channel 0:2:0:0:2:0 " &
+            "-acodec pcm_s24le -ar 48000 -newaudio -map_audio_channel 0:3:0:0:3:0 " &
+            "-acodec pcm_s24le -ar 48000 -newaudio -map_audio_channel 0:4:0:0:4:0 " &
+            "-acodec pcm_s24le -ar 48000 -newaudio -map_audio_channel 0:5:0:0:5:0 " &
+            "-acodec pcm_s24le -ar 48000 -newaudio -map_audio_channel 0:6:0:0:6:0 " &
+            "-acodec pcm_s24le -ar 48000 -newaudio -map_audio_channel 0:7:0:0:7:0 " &
+            "-acodec pcm_s24le -ar 48000 -newaudio -map_audio_channel 0:8:0:0:8:0"
+    End Function
+
+    Private Function RunFinalizeProcess(executablePath As String, arguments As String, workingDirectory As String) As String
+        Dim startInfo As New ProcessStartInfo() With {
+            .FileName = executablePath,
+            .Arguments = arguments,
+            .WorkingDirectory = workingDirectory,
+            .UseShellExecute = False,
+            .RedirectStandardOutput = True,
+            .RedirectStandardError = True,
+            .CreateNoWindow = True
+        }
+
+        Using process As New Process() With {.StartInfo = startInfo}
+            If Not process.Start() Then
+                Return "FFmbc could not be started."
+            End If
+
+            Dim standardOutput = process.StandardOutput.ReadToEnd()
+            Dim standardError = process.StandardError.ReadToEnd()
+            process.WaitForExit()
+
+            If Not String.IsNullOrWhiteSpace(standardOutput) Then
+                For Each line In standardOutput.Split({ControlChars.CrLf, ControlChars.Lf}, StringSplitOptions.RemoveEmptyEntries)
+                    AppendLog($"FFmbc: {line}")
+                Next
+            End If
+
+            If Not String.IsNullOrWhiteSpace(standardError) Then
+                For Each line In standardError.Split({ControlChars.CrLf, ControlChars.Lf}, StringSplitOptions.RemoveEmptyEntries)
+                    AppendLog($"FFmbc: {line}")
+                Next
+            End If
+
+            If process.ExitCode <> 0 Then
+                Return $"FFmbc exited with code {process.ExitCode}."
+            End If
+        End Using
+
+        Return Nothing
+    End Function
+
+    Private Function FinalizeFfmbcFiles(tempFilePaths As IEnumerable(Of String), finalOutputFolder As String, Optional isBackgroundBatch As Boolean = False) As String
+        Dim ffmbcPath = ResolveFfmbcPath()
+
+        If String.IsNullOrWhiteSpace(ffmbcPath) OrElse Not File.Exists(ffmbcPath) Then
+            Return $"ffmbc.exe was not found in {AppContext.BaseDirectory}."
+        End If
+
+        Directory.CreateDirectory(finalOutputFolder)
+        Dim finalizedFiles As New List(Of String)()
+        Dim claimedFiles = tempFilePaths.ToList()
+
+        Try
+            For Each tempFilePath In claimedFiles
+                Dim finalFilePath = Path.Combine(finalOutputFolder, Path.GetFileName(tempFilePath))
+                Dim prefix = If(isBackgroundBatch, "Background finalizing", "Finalizing")
+                AppendLog($"{prefix} {Path.GetFileName(tempFilePath)} with FFmbc...")
+
+                Dim finalizeError = RunFinalizeProcess(ffmbcPath, BuildFfmbcSonyCompatibleArguments(tempFilePath, finalFilePath), finalOutputFolder)
+
+                If Not String.IsNullOrWhiteSpace(finalizeError) Then
+                    If isBackgroundBatch Then
+                        AppendLog($"Sony-compatible background finalization failed for {Path.GetFileName(tempFilePath)}: {finalizeError}")
+                    End If
+
+                    Return finalizeError
+                End If
+
+                finalizedFiles.Add(tempFilePath)
+
+                Try
+                    File.Delete(tempFilePath)
+                Catch ex As Exception
+                    AppendLog($"FFmbc finalize succeeded, but the temp file could not be deleted: {ex.Message}")
+                End Try
+            Next
+        Finally
+            SyncLock ffmbcFinalizeSync
+                For Each claimedFile In claimedFiles
+                    ffmbcProcessingTempFiles.Remove(claimedFile)
+                Next
+
+                For Each finalizedFile In finalizedFiles
+                    ffmbcProcessedTempFiles.Add(finalizedFile)
+                Next
+            End SyncLock
+        End Try
+
+        Return Nothing
+    End Function
+
+    Private Function GetFfmbcCandidateFiles(tempOutputFolder As String, includeNewestFile As Boolean) As List(Of String)
+        Dim candidateFiles As New List(Of String)()
+
+        If String.IsNullOrWhiteSpace(tempOutputFolder) OrElse Not Directory.Exists(tempOutputFolder) Then
+            Return candidateFiles
+        End If
+
+        For Each tempFilePath In Directory.GetFiles(tempOutputFolder, "*.mxf", SearchOption.TopDirectoryOnly)
+            Try
+                Dim fileInfo As New FileInfo(tempFilePath)
+
+                If fileInfo.Length > 0 Then
+                    candidateFiles.Add(tempFilePath)
+                End If
+            Catch
+            End Try
+        Next
+
+        candidateFiles.Sort(Function(leftPath, rightPath)
+                                Dim leftTime = File.GetLastWriteTimeUtc(leftPath)
+                                Dim rightTime = File.GetLastWriteTimeUtc(rightPath)
+                                Dim comparison = DateTime.Compare(leftTime, rightTime)
+
+                                If comparison <> 0 Then
+                                    Return comparison
+                                End If
+
+                                Return StringComparer.OrdinalIgnoreCase.Compare(leftPath, rightPath)
+                            End Function)
+
+        If Not includeNewestFile AndAlso candidateFiles.Count > 0 Then
+            candidateFiles.RemoveAt(candidateFiles.Count - 1)
+        End If
+
+        Dim availableFiles As New List(Of String)()
+
+        SyncLock ffmbcFinalizeSync
+            For Each candidateFile In candidateFiles
+                If Not ffmbcProcessedTempFiles.Contains(candidateFile) AndAlso Not ffmbcProcessingTempFiles.Contains(candidateFile) Then
+                    availableFiles.Add(candidateFile)
+                End If
+            Next
+        End SyncLock
+
+        Return availableFiles
+    End Function
+
+    Private Function ClaimFfmbcCandidateFiles(tempOutputFolder As String, includeNewestFile As Boolean) As List(Of String)
+        Dim candidateFiles = GetFfmbcCandidateFiles(tempOutputFolder, includeNewestFile)
+
+        If candidateFiles.Count = 0 Then
+            Return candidateFiles
+        End If
+
+        SyncLock ffmbcFinalizeSync
+            For Each candidateFile In candidateFiles
+                ffmbcProcessingTempFiles.Add(candidateFile)
+            Next
+        End SyncLock
+
+        Return candidateFiles
+    End Function
+
+    Private Sub StartBackgroundFfmbcFinalization()
+        If Not currentRecordingUsesFfmbcFinalize OrElse String.IsNullOrWhiteSpace(currentRecordingTempOutputFolder) OrElse String.IsNullOrWhiteSpace(currentRecordingFinalOutputFolder) Then
+            Return
+        End If
+
+        SyncLock ffmbcFinalizeSync
+            If ffmbcBackgroundFinalizeTask IsNot Nothing AndAlso Not ffmbcBackgroundFinalizeTask.IsCompleted Then
+                Return
+            End If
+        End SyncLock
+
+        Dim candidateFiles = ClaimFfmbcCandidateFiles(currentRecordingTempOutputFolder, includeNewestFile:=False)
+
+        If candidateFiles.Count = 0 Then
+            Return
+        End If
+
+        Dim finalOutputFolder = currentRecordingFinalOutputFolder
+        Dim backgroundFinalizeTask As Task(Of String) = Task.Run(Function() FinalizeFfmbcFiles(candidateFiles, finalOutputFolder, isBackgroundBatch:=True))
+
+        SyncLock ffmbcFinalizeSync
+            ffmbcBackgroundFinalizeTask = backgroundFinalizeTask
+        End SyncLock
+    End Sub
+
+    Private Async Function AwaitBackgroundFfmbcFinalizationAsync() As Task
+        Dim backgroundTask As Task = Nothing
+
+        SyncLock ffmbcFinalizeSync
+            backgroundTask = ffmbcBackgroundFinalizeTask
+        End SyncLock
+
+        If backgroundTask IsNot Nothing Then
+            Await backgroundTask
+        End If
+    End Function
+
+    Private Function FinalizeRemainingRecordingWithFfmbc(tempOutputFolder As String, finalOutputFolder As String) As String
+        If String.IsNullOrWhiteSpace(tempOutputFolder) OrElse Not Directory.Exists(tempOutputFolder) Then
+            Return Nothing
+        End If
+
+        Dim remainingFiles = ClaimFfmbcCandidateFiles(tempOutputFolder, includeNewestFile:=True)
+
+        If remainingFiles.Count = 0 Then
+            Return Nothing
+        End If
+
+        Dim finalizeError = FinalizeFfmbcFiles(remainingFiles, finalOutputFolder)
+
+        Try
+            If Directory.Exists(tempOutputFolder) AndAlso Directory.GetFileSystemEntries(tempOutputFolder).Length = 0 Then
+                Directory.Delete(tempOutputFolder, recursive:=False)
+            End If
+        Catch
+        End Try
+
+        Return finalizeError
+    End Function
+
+    Private Sub StartFfmbcFinalizeTimer()
+        If Not ffmbcFinalizeTimer.Enabled Then
+            ffmbcFinalizeTimer.Start()
+        End If
+    End Sub
+
+    Private Sub StopFfmbcFinalizeTimer()
+        ffmbcFinalizeTimer.Stop()
+    End Sub
+
+    Private Sub OnFfmbcFinalizeTimerTick(sender As Object, e As EventArgs)
+        If captureRunner Is Nothing OrElse Not currentRecordingUsesFfmbcFinalize Then
+            StopFfmbcFinalizeTimer()
+            Return
+        End If
+
+        StartBackgroundFfmbcFinalization()
+    End Sub
+
     Private Sub StartIdlePreview()
         If captureRunner IsNot Nothing OrElse previewRunner IsNot Nothing OrElse recordingPreviewReader IsNot Nothing Then
             Return
@@ -1286,13 +1598,37 @@ Partial Public Class RecorderControl
             Return
         End If
 
-        If captureRunner IsNot Nothing Then
+        If captureRunner IsNot Nothing OrElse isFinalizingRecordingValue Then
             Return
         End If
 
         Dim options = CreateDefaultOptions()
+        Dim selectedProfile = GetSelectedRecordingProfile()
+        Dim recordingOptions = options
         Dim previewPort = GetAvailableTcpPort()
         Dim hasAudioMonitor = speakerMonitorEnabledValue AndAlso Not String.IsNullOrWhiteSpace(ResolveFfplayPath(options.FfmpegPath))
+
+        If selectedProfile.UseFfmbcFinalize Then
+            Dim ffmbcPath = ResolveFfmbcPath()
+
+            If String.IsNullOrWhiteSpace(ffmbcPath) OrElse Not File.Exists(ffmbcPath) Then
+                Dim missingFfmbcMessage = $"ffmbc.exe was not found in {AppContext.BaseDirectory}. Copy the local FFmbc build there before using XDCAM Sony Compatible."
+                AppendLog(missingFfmbcMessage)
+                MessageBox.Show(Me, missingFfmbcMessage, "Unable To Start Recording", MessageBoxButtons.OK, MessageBoxIcon.Error)
+                Return
+            End If
+
+            currentRecordingUsesFfmbcFinalize = True
+            currentRecordingFinalOutputFolder = options.OutputFolder
+            currentRecordingTempOutputFolder = CreateFfmbcTempOutputFolder(options.OutputFolder)
+            ResetFfmbcFinalizeState()
+            recordingOptions = CloneOptionsWithOutputFolder(options, currentRecordingTempOutputFolder)
+        Else
+            currentRecordingUsesFfmbcFinalize = False
+            currentRecordingTempOutputFolder = Nothing
+            currentRecordingFinalOutputFolder = Nothing
+            ResetFfmbcFinalizeState()
+        End If
 
         If hasAudioMonitor Then
             TearDownAudioMonitor(fast:=True)
@@ -1302,18 +1638,21 @@ Partial Public Class RecorderControl
             End If
         End If
 
-        Directory.CreateDirectory(options.OutputFolder)
+        Directory.CreateDirectory(recordingOptions.OutputFolder)
         StopIdlePreview("Switching to recording preview...", fast:=True)
 
-        Dim outputPattern = options.BuildOutputPattern()
-        Dim arguments = options.BuildRecordingWithPreviewArguments(outputPattern, previewPort, If(hasAudioMonitor, audioMonitorPort, 0), PreviewWidth, PreviewFrameRate)
+        Dim outputPattern = recordingOptions.BuildOutputPattern()
+        Dim arguments = recordingOptions.BuildRecordingWithPreviewArguments(outputPattern, previewPort, If(hasAudioMonitor, audioMonitorPort, 0), PreviewWidth, PreviewFrameRate)
 
         logTextBox.Clear()
         AppendLog($"Clip pattern: {outputPattern}")
+        If currentRecordingUsesFfmbcFinalize Then
+            AppendLog("XDCAM Sony Compatible will finalize completed temp clips with FFmbc in the background while recording.")
+        End If
 
         Try
             captureRunner = New FfmpegProcessRunner()
-            captureRunner.Start(options.FfmpegPath, arguments, options.OutputFolder)
+            captureRunner.Start(recordingOptions.FfmpegPath, arguments, recordingOptions.OutputFolder)
 
             If hasAudioMonitor Then
                 If Not EnsureAudioMonitor(options) Then
@@ -1335,9 +1674,18 @@ Partial Public Class RecorderControl
             UpdateRecorderStatusAccent()
             previewStateLabel.Text = If(previewConnected, If(audioMonitorRunner IsNot Nothing, "Live preview and speaker monitoring active while recording.", "Live preview active while recording."), "Recording started. Preview is reconnecting...")
             previewStateLabel.ForeColor = Color.DarkGreen
+
+            If currentRecordingUsesFfmbcFinalize Then
+                StartFfmbcFinalizeTimer()
+            End If
         Catch ex As Exception
             AppendLog($"Failed to start recording: {GetFriendlyProcessError(ex)}")
             TearDownRecordingSession()
+            currentRecordingUsesFfmbcFinalize = False
+            currentRecordingTempOutputFolder = Nothing
+            currentRecordingFinalOutputFolder = Nothing
+            StopFfmbcFinalizeTimer()
+            ResetFfmbcFinalizeState()
             UpdateUiState(False)
             statusValueLabel.Text = "Idle"
             statusValueLabel.ForeColor = Color.DarkGreen
@@ -1355,17 +1703,21 @@ Partial Public Class RecorderControl
         End If
 
         stopButton.Enabled = False
+        statusValueLabel.Text = "Stopping"
+        statusValueLabel.ForeColor = Color.DarkOrange
+        UpdateRecorderStatusAccent()
         AppendLog("Stopping recording...")
         captureRunner.Stop()
     End Sub
 
     Private Sub UpdateUiState(isRecording As Boolean)
-        recordButton.Enabled = deckLinkInputAvailableValue AndAlso Not isRecording
+        Dim isBusy = isRecording OrElse isFinalizingRecordingValue
+        recordButton.Enabled = deckLinkInputAvailableValue AndAlso Not isBusy
         stopButton.Enabled = isRecording
-        intervalUpDown.Enabled = deckLinkInputAvailableValue AndAlso Not isRecording
-        profileComboBox.Enabled = deckLinkInputAvailableValue AndAlso Not isRecording
-        deviceComboBox.Enabled = deckLinkInputAvailableValue AndAlso Not isRecording
-        includeInRecordAllCheckBox.Enabled = deckLinkInputAvailableValue AndAlso Not isRecording
+        intervalUpDown.Enabled = deckLinkInputAvailableValue AndAlso Not isBusy
+        profileComboBox.Enabled = deckLinkInputAvailableValue AndAlso Not isBusy
+        deviceComboBox.Enabled = deckLinkInputAvailableValue AndAlso Not isBusy
+        includeInRecordAllCheckBox.Enabled = deckLinkInputAvailableValue AndAlso Not isBusy
     End Sub
 
     Private Sub SetDeckLinkAvailability(isAvailable As Boolean, Optional unavailableReason As String = "No free DeckLink input available")
@@ -1730,7 +2082,7 @@ Partial Public Class RecorderControl
         ScheduleAudioMonitorRetry()
     End Sub
 
-    Private Sub captureRunner_Exited(exitCode As Integer) Handles captureRunner.Exited
+    Private Async Sub captureRunner_Exited(exitCode As Integer) Handles captureRunner.Exited
         If InvokeRequired Then
             BeginInvoke(New Action(Of Integer)(AddressOf captureRunner_Exited), exitCode)
             Return
@@ -1739,17 +2091,62 @@ Partial Public Class RecorderControl
         StopRecordingPreviewRetry()
         TearDownRecordingPreview()
         TearDownAudioMonitor()
+        StopFfmbcFinalizeTimer()
 
-        statusValueLabel.Text = If(exitCode = 0, "Idle", $"Stopped (Exit {exitCode})")
-        statusValueLabel.ForeColor = If(exitCode = 0, Color.DarkGreen, Color.DarkOrange)
         recordingStartedAtUtc = Nothing
         UpdateRecordingElapsedDisplay()
-        UpdateRecorderStatusAccent()
         AppendLog($"Recording exited with code {exitCode}.")
 
         TearDownCaptureRunner()
+
+        Dim shouldFinalizeWithFfmbc = exitCode = 0 AndAlso currentRecordingUsesFfmbcFinalize
+        Dim tempOutputFolder = currentRecordingTempOutputFolder
+        Dim finalOutputFolder = currentRecordingFinalOutputFolder
+
+        If shouldFinalizeWithFfmbc Then
+            isFinalizingRecordingValue = True
+            statusValueLabel.Text = "Finalizing"
+            statusValueLabel.ForeColor = Color.DarkOrange
+            AppendLog("Finalizing Sony-compatible MXF clips with FFmbc...")
+        Else
+            statusValueLabel.Text = If(exitCode = 0, "Idle", $"Stopped (Exit {exitCode})")
+            statusValueLabel.ForeColor = If(exitCode = 0, Color.DarkGreen, Color.DarkOrange)
+            currentRecordingUsesFfmbcFinalize = False
+            currentRecordingTempOutputFolder = Nothing
+            currentRecordingFinalOutputFolder = Nothing
+        End If
+
+        UpdateRecorderStatusAccent()
         UpdateUiState(False)
         StartIdlePreview()
+
+        If shouldFinalizeWithFfmbc Then
+            Await AwaitBackgroundFfmbcFinalizationAsync()
+            Dim finalizeError = Await Task.Run(Function() FinalizeRemainingRecordingWithFfmbc(tempOutputFolder, finalOutputFolder))
+
+            If hasDisposedResources OrElse IsDisposed Then
+                Return
+            End If
+
+            isFinalizingRecordingValue = False
+            currentRecordingUsesFfmbcFinalize = False
+            currentRecordingTempOutputFolder = Nothing
+            currentRecordingFinalOutputFolder = Nothing
+            ResetFfmbcFinalizeState()
+
+            If String.IsNullOrWhiteSpace(finalizeError) Then
+                statusValueLabel.Text = "Idle"
+                statusValueLabel.ForeColor = Color.DarkGreen
+                AppendLog("Sony-compatible MXF finalization completed.")
+            Else
+                statusValueLabel.Text = "Finalize Failed"
+                statusValueLabel.ForeColor = Color.DarkOrange
+                AppendLog($"Sony-compatible MXF finalization failed: {finalizeError}")
+            End If
+
+            UpdateRecorderStatusAccent()
+            UpdateUiState(False)
+        End If
     End Sub
 
     Private Sub DisposeRecorderResources()
@@ -1759,6 +2156,7 @@ Partial Public Class RecorderControl
 
         hasDisposedResources = True
         cpuUsageTimer.Stop()
+        StopFfmbcFinalizeTimer()
         SaveOperatorSettings()
         ReleaseReservedDevice()
         StopRecordingPreviewRetry()

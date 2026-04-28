@@ -12,6 +12,7 @@ Friend Class RecorderOptions
     Public Property ContainerExtension As String
     Public Property VideoFilter As String
     Public Property OutputOptions As String
+    Public Property UseSonyCompatibleAudioLayout As Boolean
 
     Public Function BuildOutputPattern(Optional timestampToken As String = Nothing) As String
         Dim stamp = If(String.IsNullOrWhiteSpace(timestampToken), "%d%m%Y_%H%M%S", timestampToken)
@@ -57,7 +58,10 @@ Friend Class RecorderOptions
         builder.Append("-filter_complex ").Append(Quote(filterGraph)).Append(" ")
 
         builder.Append("-map ").Append(Quote("[rec_v]")).Append(" ")
-        builder.Append("-map ").Append(Quote("[rec_a]")).Append(" ")
+
+        For Each audioLabel In GetRecordingAudioLabels()
+            builder.Append("-map ").Append(Quote(audioLabel)).Append(" ")
+        Next
 
         If String.IsNullOrWhiteSpace(OutputOptions) Then
             builder.Append("-c:v prores_ks -profile:v 3 -pix_fmt yuv422p10le -vendor apl0 -bits_per_mb 2400 -c:a pcm_s16le -ar 48000 ")
@@ -141,12 +145,38 @@ Friend Class RecorderOptions
         Dim previewHeight = GetPreviewHeight(previewWidth)
         Dim meterChannelWidth = GetMeterChannelWidth(previewWidth)
         Dim meterOutputWidth = GetMeterOutputWidth(previewWidth)
-        Dim audioSplitOutputs = If(audioMonitorPort > 0, "[rec_a][meter_a][mon_a]", "[rec_a][meter_a]")
+        Dim audioSplitOutputs = If(audioMonitorPort > 0, If(UseSonyCompatibleAudioLayout, "[source_a][meter_a][mon_a]", "[rec_a][meter_a][mon_a]"), If(UseSonyCompatibleAudioLayout, "[source_a][meter_a]", "[rec_a][meter_a]"))
         Dim audioSplitCount = If(audioMonitorPort > 0, 3, 2)
         Dim rightMeterPan = GetRightMeterPanExpression()
         Dim recordingChain = BuildRecordingVideoChain(recordingVideoFilter)
+        Dim sonyCompatibleAudioChain = BuildSonyCompatibleAudioChain()
 
-        Return $"[0:v]split=2[rec_src][preview_src];{recordingChain}[preview_src]scale={previewWidth}:{previewHeight}:force_original_aspect_ratio=decrease,pad={previewWidth}:{previewHeight}:(ow-iw)/2:(oh-ih)/2,fps={Math.Max(1, previewFrameRate)},format=yuv420p[preview_video];[0:a]asplit={audioSplitCount}{audioSplitOutputs};[meter_a]asplit=2[left_meter_src][right_meter_src];[left_meter_src]pan=mono|c0=c0,showvolume=r={Math.Max(1, previewFrameRate)}:w={meterChannelWidth}:h={previewHeight}:f=0.92:b=2:t=0:v=1:dm=1:o=v:ds=log:p=0.18:m=r[left_bar_src];[left_bar_src]scale={meterOutputWidth}:{previewHeight},format=yuv420p[left_bar];[right_meter_src]pan={rightMeterPan},showvolume=r={Math.Max(1, previewFrameRate)}:w={meterChannelWidth}:h={previewHeight}:f=0.92:b=2:t=0:v=1:dm=1:o=v:ds=log:p=0.18:m=r[right_bar_src];[right_bar_src]scale={meterOutputWidth}:{previewHeight},format=yuv420p[right_bar];[left_bar][preview_video][right_bar]hstack=inputs=3[preview]"
+        Return $"[0:v]split=2[rec_src][preview_src];{recordingChain}[preview_src]scale={previewWidth}:{previewHeight}:force_original_aspect_ratio=decrease,pad={previewWidth}:{previewHeight}:(ow-iw)/2:(oh-ih)/2,fps={Math.Max(1, previewFrameRate)},format=yuv420p[preview_video];[0:a]asplit={audioSplitCount}{audioSplitOutputs};{sonyCompatibleAudioChain}[meter_a]asplit=2[left_meter_src][right_meter_src];[left_meter_src]pan=mono|c0=c0,showvolume=r={Math.Max(1, previewFrameRate)}:w={meterChannelWidth}:h={previewHeight}:f=0.92:b=2:t=0:v=1:dm=1:o=v:ds=log:p=0.18:m=r[left_bar_src];[left_bar_src]scale={meterOutputWidth}:{previewHeight},format=yuv420p[left_bar];[right_meter_src]pan={rightMeterPan},showvolume=r={Math.Max(1, previewFrameRate)}:w={meterChannelWidth}:h={previewHeight}:f=0.92:b=2:t=0:v=1:dm=1:o=v:ds=log:p=0.18:m=r[right_bar_src];[right_bar_src]scale={meterOutputWidth}:{previewHeight},format=yuv420p[right_bar];[left_bar][preview_video][right_bar]hstack=inputs=3[preview]"
+    End Function
+
+    Private Function BuildSonyCompatibleAudioChain() As String
+        If Not UseSonyCompatibleAudioLayout Then
+            Return String.Empty
+        End If
+
+        Return "[source_a]channelsplit=channel_layout=stereo[rec_a1][rec_a2];anullsrc=r=48000:cl=mono[rec_a3];anullsrc=r=48000:cl=mono[rec_a4];anullsrc=r=48000:cl=mono[rec_a5];anullsrc=r=48000:cl=mono[rec_a6];anullsrc=r=48000:cl=mono[rec_a7];anullsrc=r=48000:cl=mono[rec_a8];"
+    End Function
+
+    Private Function GetRecordingAudioLabels() As IEnumerable(Of String)
+        If Not UseSonyCompatibleAudioLayout Then
+            Return New String() {"[rec_a]"}
+        End If
+
+        Return New String() {
+            "[rec_a1]",
+            "[rec_a2]",
+            "[rec_a3]",
+            "[rec_a4]",
+            "[rec_a5]",
+            "[rec_a6]",
+            "[rec_a7]",
+            "[rec_a8]"
+        }
     End Function
 
     Private Function BuildRecordingVideoChain(recordingVideoFilter As String) As String
