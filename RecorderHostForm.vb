@@ -21,9 +21,14 @@ Partial Public Class RecorderHostForm
     End Function
 
     Private ReadOnly systemCpuTimer As New Timer() With {.Interval = 1000}
+    Private ReadOnly recordingDirectoryPanel As New FlowLayoutPanel()
+    Private ReadOnly recordingDirectoryLabel As New Label()
+    Private ReadOnly recordingDirectoryTextBox As New TextBox()
+    Private ReadOnly browseRecordingDirectoryButton As New Button()
     Private hasSystemCpuSample As Boolean
     Private lastSystemCpuSample As SystemCpuSample
     Private suppressSharedOperatorEvents As Boolean
+    Private suppressRecordingDirectoryEvents As Boolean
     Private isDarkModeEnabled As Boolean = True
 
     Public Sub New()
@@ -45,6 +50,9 @@ Partial Public Class RecorderHostForm
         AddHandler openRecordingsButton.Click, AddressOf OnOpenRecordingsClicked
         AddHandler deleteAllButton.Click, AddressOf OnDeleteAllClicked
         AddHandler darkModeCheckBox.CheckedChanged, AddressOf OnDarkModeChanged
+        AddHandler browseRecordingDirectoryButton.Click, AddressOf OnBrowseRecordingDirectoryClicked
+        AddHandler recordingDirectoryTextBox.Leave, AddressOf OnRecordingDirectoryCommitted
+        AddHandler recordingDirectoryTextBox.KeyDown, AddressOf OnRecordingDirectoryKeyDown
         AddHandler Load, AddressOf RecorderHostForm_Load
 
         profileComboBox.Items.Clear()
@@ -52,6 +60,8 @@ Partial Public Class RecorderHostForm
 
         audioListenComboBox.Items.AddRange(New Object() {"Off", "CAM1", "CAM2", "CAM3", "CAM4"})
         audioListenComboBox.SelectedItem = "CAM1"
+        InitializeRecordingDirectoryControls()
+        RefreshRecordingDirectoryDisplay()
 
         ReadSystemCpuSample(lastSystemCpuSample)
         hasSystemCpuSample = True
@@ -83,6 +93,7 @@ Partial Public Class RecorderHostForm
 
         leftSectionPanel.Controls.Add(BuildCommonSection("Setup", profileLabel, profileComboBox, intervalLabel, intervalUpDown))
         leftSectionPanel.Controls.Add(BuildCommonSection("Recording", recordAllButton, stopAllButton, openRecordingsButton, deleteAllButton))
+        leftSectionPanel.Controls.Add(BuildCommonSection("Folder", recordingDirectoryPanel))
         leftSectionPanel.Controls.Add(BuildCommonSection("Audio", audioListenPanel))
         leftSectionPanel.Controls.Add(BuildCommonSection("View", darkModeCheckBox))
         leftSectionPanel.Controls.Add(BuildCommonSection(
@@ -111,6 +122,34 @@ Partial Public Class RecorderHostForm
         commonPanel.Controls.Add(rightSectionPanel, 1, 0)
 
         commonPanel.ResumeLayout(True)
+    End Sub
+
+    Private Sub InitializeRecordingDirectoryControls()
+        recordingDirectoryPanel.AutoSize = True
+        recordingDirectoryPanel.AutoSizeMode = AutoSizeMode.GrowAndShrink
+        recordingDirectoryPanel.FlowDirection = FlowDirection.LeftToRight
+        recordingDirectoryPanel.Margin = New Padding(0)
+        recordingDirectoryPanel.Padding = New Padding(0)
+        recordingDirectoryPanel.WrapContents = False
+
+        recordingDirectoryLabel.AutoSize = True
+        recordingDirectoryLabel.Font = New Font("Segoe UI", 9.0F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
+        recordingDirectoryLabel.Margin = New Padding(0, 4, 6, 0)
+        recordingDirectoryLabel.Text = "Recording Dir"
+
+        recordingDirectoryTextBox.Font = New Font("Segoe UI", 9.0F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
+        recordingDirectoryTextBox.Margin = New Padding(0)
+        recordingDirectoryTextBox.Size = New Size(360, 23)
+
+        browseRecordingDirectoryButton.Font = New Font("Segoe UI", 9.0F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
+        browseRecordingDirectoryButton.Margin = New Padding(8, 0, 0, 0)
+        browseRecordingDirectoryButton.Size = New Size(72, 24)
+        browseRecordingDirectoryButton.Text = "Browse..."
+        browseRecordingDirectoryButton.UseVisualStyleBackColor = True
+
+        recordingDirectoryPanel.Controls.Add(recordingDirectoryLabel)
+        recordingDirectoryPanel.Controls.Add(recordingDirectoryTextBox)
+        recordingDirectoryPanel.Controls.Add(browseRecordingDirectoryButton)
     End Sub
 
     Private Function BuildCommonSection(title As String, ParamArray controls As Control()) As FlowLayoutPanel
@@ -252,6 +291,9 @@ Partial Public Class RecorderHostForm
             ElseIf TypeOf childControl Is ComboBox OrElse TypeOf childControl Is NumericUpDown Then
                 childControl.BackColor = If(isDarkModeEnabled, Color.FromArgb(37, 40, 45), SystemColors.Window)
                 childControl.ForeColor = If(isDarkModeEnabled, Color.FromArgb(245, 247, 250), SystemColors.WindowText)
+            ElseIf TypeOf childControl Is TextBox Then
+                childControl.BackColor = If(isDarkModeEnabled, Color.FromArgb(37, 40, 45), SystemColors.Window)
+                childControl.ForeColor = If(isDarkModeEnabled, Color.FromArgb(245, 247, 250), SystemColors.WindowText)
             End If
 
             If childControl.HasChildren Then
@@ -338,15 +380,15 @@ Partial Public Class RecorderHostForm
     End Sub
 
     Private Sub OnOpenRecordingsClicked(sender As Object, e As EventArgs)
-        Dim outputFolderPath = leftRecorderControl.OutputFolderPath
+        Dim outputFolderPath = RecordingDirectorySettings.GetRecordingDirectory()
         Directory.CreateDirectory(outputFolderPath)
         Process.Start(New ProcessStartInfo(outputFolderPath) With {.UseShellExecute = True})
     End Sub
 
     Private Sub OnDeleteAllClicked(sender As Object, e As EventArgs)
-        Dim outputFolderPath = leftRecorderControl.OutputFolderPath
+        Dim outputFolderPath = RecordingDirectorySettings.GetRecordingDirectory()
 
-        If GetRecorderControls().Any(Function(recorderControl) recorderControl.IsRecording) Then
+        If GetRecorderControls().Any(Function(recorderControl) recorderControl.IsRecording) OrElse streamRecorderControl.IsRecording Then
             MessageBox.Show(Me, "Stop all recordings before deleting files.", "Delete All", MessageBoxButtons.OK, MessageBoxIcon.Warning)
             Return
         End If
@@ -388,6 +430,59 @@ Partial Public Class RecorderHostForm
     Private Sub OnDarkModeChanged(sender As Object, e As EventArgs)
         isDarkModeEnabled = darkModeCheckBox.Checked
         ApplyVisualTheme()
+    End Sub
+
+    Private Sub OnBrowseRecordingDirectoryClicked(sender As Object, e As EventArgs)
+        Using folderDialog As New FolderBrowserDialog()
+            folderDialog.Description = "Choose the recording directory"
+            folderDialog.SelectedPath = RecordingDirectorySettings.GetRecordingDirectory()
+            folderDialog.ShowNewFolderButton = True
+
+            If folderDialog.ShowDialog(Me) <> DialogResult.OK Then
+                Return
+            End If
+
+            recordingDirectoryTextBox.Text = folderDialog.SelectedPath
+            CommitRecordingDirectoryChange()
+        End Using
+    End Sub
+
+    Private Sub OnRecordingDirectoryCommitted(sender As Object, e As EventArgs)
+        CommitRecordingDirectoryChange()
+    End Sub
+
+    Private Sub OnRecordingDirectoryKeyDown(sender As Object, e As KeyEventArgs)
+        If e.KeyCode <> Keys.Enter Then
+            Return
+        End If
+
+        e.Handled = True
+        e.SuppressKeyPress = True
+        CommitRecordingDirectoryChange()
+    End Sub
+
+    Private Sub CommitRecordingDirectoryChange()
+        If suppressRecordingDirectoryEvents Then
+            Return
+        End If
+
+        Try
+            Dim savedPath = RecordingDirectorySettings.SaveRecordingDirectory(recordingDirectoryTextBox.Text)
+            RefreshRecordingDirectoryDisplay(savedPath)
+        Catch ex As Exception
+            RefreshRecordingDirectoryDisplay()
+            MessageBox.Show(Me, $"Unable to use that recording directory.{Environment.NewLine}{ex.Message}", "Recording Directory", MessageBoxButtons.OK, MessageBoxIcon.Warning)
+        End Try
+    End Sub
+
+    Private Sub RefreshRecordingDirectoryDisplay(Optional directoryPath As String = Nothing)
+        suppressRecordingDirectoryEvents = True
+
+        Try
+            recordingDirectoryTextBox.Text = If(String.IsNullOrWhiteSpace(directoryPath), RecordingDirectorySettings.GetRecordingDirectory(), directoryPath)
+        Finally
+            suppressRecordingDirectoryEvents = False
+        End Try
     End Sub
 
     Private Sub ApplyAudioListenSelection()

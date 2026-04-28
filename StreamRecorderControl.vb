@@ -39,6 +39,16 @@ Public Class StreamRecorderControl
         Public ReadOnly Property Channels As Integer
     End Class
 
+    Private NotInheritable Class PendingFfmbcFinalizeSession
+        Public Sub New(tempOutputFolder As String, finalOutputFolder As String)
+            Me.TempOutputFolder = tempOutputFolder
+            Me.FinalOutputFolder = finalOutputFolder
+        End Sub
+
+        Public ReadOnly Property TempOutputFolder As String
+        Public ReadOnly Property FinalOutputFolder As String
+    End Class
+
     Private ReadOnly statusStrip As New Panel()
     Private ReadOnly statusValueLabel As New Label()
     Private ReadOnly urlTextBox As New TextBox()
@@ -74,6 +84,7 @@ Public Class StreamRecorderControl
     Private ReadOnly ffmbcFinalizeSync As New Object()
     Private ReadOnly ffmbcProcessedTempFiles As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
     Private ReadOnly ffmbcProcessingTempFiles As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+    Private ReadOnly pendingFfmbcFinalizeSessions As New List(Of PendingFfmbcFinalizeSession)()
     Private ffmbcBackgroundFinalizeTask As Task(Of String)
 
     Public Sub New()
@@ -108,9 +119,15 @@ Public Class StreamRecorderControl
         End Set
     End Property
 
+    Public ReadOnly Property IsRecording As Boolean
+        Get
+            Return streamRunner IsNot Nothing
+        End Get
+    End Property
+
     Private ReadOnly Property OutputFolderPath As String
         Get
-            Return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), "FFmpegRecorder")
+            Return RecordingDirectorySettings.GetRecordingDirectory()
         End Get
     End Property
 
@@ -414,7 +431,6 @@ Public Class StreamRecorderControl
                     currentDirectFfmbcSilenceFilePath = Nothing
                     currentRecordingFinalOutputFolder = OutputFolderPath
                     currentRecordingTempOutputFolder = CreateFfmbcTempOutputFolder(OutputFolderPath)
-                    ResetFfmbcFinalizeState()
                     Dim tempOutputPattern = Path.Combine(currentRecordingTempOutputFolder, $"Stream_%d%m%Y_%H%M%S{selectedProfile.ContainerExtension}")
                     Dim fallbackAudioSource = ProbePrimaryAudioSource(inputUrls, ffprobePath)
                     Dim fallbackSilenceFilePath = EnsureSilenceWavFile(Math.Max(1, Decimal.ToInt32(intervalUpDown.Value) + 1))
@@ -441,7 +457,6 @@ Public Class StreamRecorderControl
                 currentDirectFfmbcSilenceFilePath = Nothing
                 currentRecordingTempOutputFolder = Nothing
                 currentRecordingFinalOutputFolder = Nothing
-                ResetFfmbcFinalizeState()
 
                 Dim outputPattern = Path.Combine(OutputFolderPath, $"Stream_%d%m%Y_%H%M%S{selectedProfile.ContainerExtension}")
                 Dim arguments = BuildRecordingArguments(inputUrls, outputPattern)
@@ -475,7 +490,6 @@ Public Class StreamRecorderControl
             currentRecordingTempOutputFolder = Nothing
             currentRecordingFinalOutputFolder = Nothing
             StopFfmbcFinalizeTimer()
-            ResetFfmbcFinalizeState()
             TearDownRunner()
             recordingStartedAtUtc = Nothing
             elapsedTimer.Stop()
@@ -1039,17 +1053,105 @@ Public Class StreamRecorderControl
         Return Directory.EnumerateFiles(tempOutputFolder, "*.mxf", SearchOption.TopDirectoryOnly).Count()
     End Function
 
-    Private Sub UpdateFinalizeStatus(tempOutputFolder As String)
-        If Not isFinalizingRecordingValue Then
+    Private Function GetPendingFfmbcFinalizeSessionsSnapshot() As List(Of PendingFfmbcFinalizeSession)
+        SyncLock ffmbcFinalizeSync
+            Return pendingFfmbcFinalizeSessions.ToList()
+        End SyncLock
+    End Function
+
+    Private Sub AddPendingFfmbcFinalizeSession(tempOutputFolder As String, finalOutputFolder As String)
+        If String.IsNullOrWhiteSpace(tempOutputFolder) OrElse String.IsNullOrWhiteSpace(finalOutputFolder) Then
             Return
         End If
 
+        SyncLock ffmbcFinalizeSync
+            If pendingFfmbcFinalizeSessions.Any(Function(session) String.Equals(session.TempOutputFolder, tempOutputFolder, StringComparison.OrdinalIgnoreCase)) Then
+                Return
+            End If
+
+            pendingFfmbcFinalizeSessions.Add(New PendingFfmbcFinalizeSession(tempOutputFolder, finalOutputFolder))
+        End SyncLock
+    End Sub
+
+    Private Function GetPendingFinalizeClipCount() As Integer
+        Dim totalCount = 0
+
+        For Each pendingSession In GetPendingFfmbcFinalizeSessionsSnapshot()
+            Dim knownFiles As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+
+            If Directory.Exists(pendingSession.TempOutputFolder) Then
+                For Each filePath In Directory.EnumerateFiles(pendingSession.TempOutputFolder, "*.mxf", SearchOption.TopDirectoryOnly)
+                    knownFiles.Add(filePath)
+                Next
+            End If
+
+            SyncLock ffmbcFinalizeSync
+                For Each processingFilePath In ffmbcProcessingTempFiles
+                    If String.Equals(Path.GetDirectoryName(processingFilePath), pendingSession.TempOutputFolder, StringComparison.OrdinalIgnoreCase) Then
+                        knownFiles.Add(processingFilePath)
+                    End If
+                Next
+            End SyncLock
+
+            totalCount += knownFiles.Count
+        Next
+
+        Return totalCount
+    End Function
+
+    Private Function HasPendingFfmbcFinalizeWork() As Boolean
+        If streamRunner IsNot Nothing AndAlso currentRecordingUsesFfmbcFallbackValue AndAlso Not String.IsNullOrWhiteSpace(currentRecordingTempOutputFolder) Then
+            Return True
+        End If
+
+        If GetPendingFfmbcFinalizeSessionsSnapshot().Count > 0 Then
+            Return True
+        End If
+
+        SyncLock ffmbcFinalizeSync
+            Return ffmbcProcessingTempFiles.Count > 0
+        End SyncLock
+    End Function
+
+    Private Sub CleanupCompletedFfmbcFinalizeSessions()
+        SyncLock ffmbcFinalizeSync
+            For index = pendingFfmbcFinalizeSessions.Count - 1 To 0 Step -1
+                Dim pendingSession = pendingFfmbcFinalizeSessions(index)
+                Dim hasFiles = Directory.Exists(pendingSession.TempOutputFolder) AndAlso Directory.EnumerateFiles(pendingSession.TempOutputFolder, "*.mxf", SearchOption.TopDirectoryOnly).Any()
+                Dim hasProcessingFiles = ffmbcProcessingTempFiles.Any(Function(filePath) String.Equals(Path.GetDirectoryName(filePath), pendingSession.TempOutputFolder, StringComparison.OrdinalIgnoreCase))
+
+                If hasFiles OrElse hasProcessingFiles Then
+                    Continue For
+                End If
+
+                pendingFfmbcFinalizeSessions.RemoveAt(index)
+
+                Try
+                    If Directory.Exists(pendingSession.TempOutputFolder) AndAlso Directory.GetFileSystemEntries(pendingSession.TempOutputFolder).Length = 0 Then
+                        Directory.Delete(pendingSession.TempOutputFolder, recursive:=False)
+                    End If
+                Catch
+                End Try
+            Next
+        End SyncLock
+    End Sub
+
+    Private Sub UpdateFinalizeStatus(tempOutputFolder As String)
         If InvokeRequired Then
             BeginInvoke(New Action(Of String)(AddressOf UpdateFinalizeStatus), tempOutputFolder)
             Return
         End If
 
-        Dim remainingClipCount = GetExistingFfmbcTempFileCount(tempOutputFolder)
+        CleanupCompletedFfmbcFinalizeSessions()
+
+        Dim wasFinalizing = isFinalizingRecordingValue
+        Dim remainingClipCount = GetPendingFinalizeClipCount()
+        isFinalizingRecordingValue = remainingClipCount > 0
+
+        If streamRunner IsNot Nothing Then
+            UpdateStatusAccent()
+            Return
+        End If
 
         If remainingClipCount > 0 Then
             statusValueLabel.Text = $"Finalizing {remainingClipCount} clip{If(remainingClipCount = 1, "", "s")}..."
@@ -1057,9 +1159,13 @@ Public Class StreamRecorderControl
         Else
             statusValueLabel.Text = "Ready"
             statusValueLabel.ForeColor = Color.DarkGreen
+            If wasFinalizing Then
+                AppendLog("Ready. Finalization queue is empty.")
+            End If
         End If
 
         UpdateStatusAccent()
+        UpdateUiState(False)
     End Sub
 
     Private Function ClaimFfmbcCandidateFiles(tempOutputFolder As String, includeNewestFile As Boolean) As List(Of String)
@@ -1132,28 +1238,83 @@ Public Class StreamRecorderControl
     End Function
 
     Private Sub StartBackgroundFfmbcFinalization()
-        If Not currentRecordingUsesFfmbcFallbackValue OrElse String.IsNullOrWhiteSpace(currentRecordingTempOutputFolder) OrElse String.IsNullOrWhiteSpace(currentRecordingFinalOutputFolder) Then
+        Dim finalizeSessions = GetPendingFfmbcFinalizeSessionsSnapshot()
+
+        If currentRecordingUsesFfmbcFallbackValue AndAlso streamRunner IsNot Nothing AndAlso
+            Not String.IsNullOrWhiteSpace(currentRecordingTempOutputFolder) AndAlso
+            Not String.IsNullOrWhiteSpace(currentRecordingFinalOutputFolder) Then
+            finalizeSessions.Add(New PendingFfmbcFinalizeSession(currentRecordingTempOutputFolder, currentRecordingFinalOutputFolder))
+        End If
+
+        For Each finalizeSession In finalizeSessions
+            Dim isCurrentRecordingSession = streamRunner IsNot Nothing AndAlso
+                currentRecordingUsesFfmbcFallbackValue AndAlso
+                String.Equals(finalizeSession.TempOutputFolder, currentRecordingTempOutputFolder, StringComparison.OrdinalIgnoreCase)
+
+            Dim candidateFiles = ClaimFfmbcCandidateFiles(finalizeSession.TempOutputFolder, includeNewestFile:=Not isCurrentRecordingSession)
+            QueueFfmbcFiles(candidateFiles, finalizeSession.FinalOutputFolder, isBackgroundBatch:=True)
+        Next
+    End Sub
+
+    Private Sub QueueFfmbcFiles(tempFilePaths As IEnumerable(Of String), finalOutputFolder As String, Optional isBackgroundBatch As Boolean = False)
+        If tempFilePaths Is Nothing Then
             Return
         End If
 
-        SyncLock ffmbcFinalizeSync
-            If ffmbcBackgroundFinalizeTask IsNot Nothing AndAlso Not ffmbcBackgroundFinalizeTask.IsCompleted Then
+        For Each tempFilePath In tempFilePaths
+            Dim queuedFilePath = tempFilePath
+            Dim queuedOutputFolder = finalOutputFolder
+            Dim queuedIsBackgroundBatch = isBackgroundBatch
+
+            FfmbcConversionQueue.Enqueue(
+                Sub()
+                    ProcessQueuedFfmbcFile(queuedFilePath, queuedOutputFolder, queuedIsBackgroundBatch)
+                End Sub)
+        Next
+    End Sub
+
+    Private Sub ProcessQueuedFfmbcFile(tempFilePath As String, finalOutputFolder As String, isBackgroundBatch As Boolean)
+        Dim tempOutputFolder = Path.GetDirectoryName(tempFilePath)
+        Dim finalFilePath = Path.Combine(finalOutputFolder, Path.GetFileName(tempFilePath))
+        Dim prefix = If(isBackgroundBatch, "Background finalizing", "Finalizing")
+        Dim finalizeError As String = Nothing
+
+        Try
+            Dim ffmbcPath = ResolveFfmbcPath()
+
+            If String.IsNullOrWhiteSpace(ffmbcPath) OrElse Not File.Exists(ffmbcPath) Then
+                finalizeError = $"ffmbc.exe was not found in {AppContext.BaseDirectory}."
                 Return
             End If
-        End SyncLock
 
-        Dim candidateFiles = ClaimFfmbcCandidateFiles(currentRecordingTempOutputFolder, includeNewestFile:=False)
+            Directory.CreateDirectory(finalOutputFolder)
+            UpdateFinalizeStatus(tempOutputFolder)
+            AppendLog($"{prefix} {Path.GetFileName(tempFilePath)} with FFmbc...")
+            finalizeError = RunFinalizeProcess(ffmbcPath, BuildFfmbcSonyCompatibleArguments(tempFilePath, finalFilePath), finalOutputFolder)
 
-        If candidateFiles.Count = 0 Then
-            Return
-        End If
+            If String.IsNullOrWhiteSpace(finalizeError) Then
+                Try
+                    File.Delete(tempFilePath)
+                Catch ex As Exception
+                    AppendLog($"FFmbc finalize succeeded, but the temp file could not be deleted: {ex.Message}")
+                End Try
+            End If
+        Finally
+            SyncLock ffmbcFinalizeSync
+                ffmbcProcessingTempFiles.Remove(tempFilePath)
 
-        Dim finalOutputFolder = currentRecordingFinalOutputFolder
-        Dim backgroundFinalizeTask As Task(Of String) = Task.Run(Function() FinalizeFfmbcFiles(candidateFiles, finalOutputFolder, isBackgroundBatch:=True))
+                If String.IsNullOrWhiteSpace(finalizeError) Then
+                    ffmbcProcessedTempFiles.Add(tempFilePath)
+                End If
+            End SyncLock
 
-        SyncLock ffmbcFinalizeSync
-            ffmbcBackgroundFinalizeTask = backgroundFinalizeTask
-        End SyncLock
+            If Not String.IsNullOrWhiteSpace(finalizeError) Then
+                AppendLog($"Sony-compatible stream finalization failed: {finalizeError}")
+            End If
+
+            CleanupCompletedFfmbcFinalizeSessions()
+            UpdateFinalizeStatus(tempOutputFolder)
+        End Try
     End Sub
 
     Private Async Function AwaitBackgroundFfmbcFinalizationAsync() As Task(Of String)
@@ -1250,7 +1411,9 @@ Public Class StreamRecorderControl
     End Sub
 
     Private Sub OnFfmbcFinalizeTimerTick(sender As Object, e As EventArgs)
-        If streamRunner Is Nothing OrElse Not currentRecordingUsesFfmbcFallbackValue Then
+        CleanupCompletedFfmbcFinalizeSessions()
+
+        If Not HasPendingFfmbcFinalizeWork() Then
             StopFfmbcFinalizeTimer()
             Return
         End If
@@ -1474,7 +1637,7 @@ Public Class StreamRecorderControl
     End Function
 
     Private Sub UpdateUiState(isRecording As Boolean)
-        Dim isBusy = isRecording OrElse isFinalizingRecordingValue
+        Dim isBusy = isRecording
         recordButton.Enabled = Not isBusy
         stopButton.Enabled = isRecording
         urlTextBox.Enabled = Not isBusy
@@ -1527,7 +1690,7 @@ Public Class StreamRecorderControl
         AppendLog(message)
     End Sub
 
-    Private Async Sub streamRunner_Exited(exitCode As Integer) Handles streamRunner.Exited
+    Private Sub streamRunner_Exited(exitCode As Integer) Handles streamRunner.Exited
         If InvokeRequired Then
             BeginInvoke(New Action(Of Integer)(AddressOf streamRunner_Exited), exitCode)
             Return
@@ -1554,35 +1717,13 @@ Public Class StreamRecorderControl
                 statusValueLabel.ForeColor = Color.Firebrick
                 UpdateUiState(True)
                 UpdateStatusAccent()
+                If HasPendingFfmbcFinalizeWork() Then
+                    StartFfmbcFinalizeTimer()
+                End If
                 Return
             Catch ex As Exception
                 AppendLog($"Failed to start next Sony-compatible stream segment: {ex.Message}")
             End Try
-        End If
-
-        If shouldFinalizeWithFfmbc Then
-            isFinalizingRecordingValue = True
-            UpdateUiState(False)
-            UpdateFinalizeStatus(tempOutputFolder)
-            If exitCode <> 0 Then
-                AppendLog("Recording stopped with a non-zero exit code, but valid Sony-compatible temp clips were found. Finalizing them with FFmbc...")
-            Else
-                AppendLog("Finalizing Sony-compatible stream clips with FFmbc...")
-            End If
-
-            Dim finalizeError = Await FinalizeAllPendingFfmbcFilesAsync(tempOutputFolder, finalOutputFolder)
-
-            isFinalizingRecordingValue = False
-
-            If String.IsNullOrWhiteSpace(finalizeError) Then
-                statusValueLabel.Text = "Ready"
-                statusValueLabel.ForeColor = Color.DarkGreen
-                AppendLog("Ready. Finalization queue is empty.")
-            Else
-                AppendLog($"Sony-compatible stream finalization failed: {finalizeError}")
-                statusValueLabel.Text = "Finalize Failed"
-                statusValueLabel.ForeColor = Color.DarkOrange
-            End If
         End If
 
         currentRecordingUsesFfmbcFallbackValue = False
@@ -1594,14 +1735,29 @@ Public Class StreamRecorderControl
         currentDirectFfmbcSilenceFilePath = Nothing
         currentRecordingTempOutputFolder = Nothing
         currentRecordingFinalOutputFolder = Nothing
-        ResetFfmbcFinalizeState()
         recordingStartedAtUtc = Nothing
         elapsedTimer.Stop()
         UpdateElapsedDisplay()
-        If Not shouldFinalizeWithFfmbc Then
+
+        If shouldFinalizeWithFfmbc Then
+            AddPendingFfmbcFinalizeSession(tempOutputFolder, finalOutputFolder)
+            If exitCode <> 0 Then
+                AppendLog("Recording stopped with a non-zero exit code, but valid Sony-compatible temp clips were found. Finalizing them with FFmbc...")
+            Else
+                AppendLog("Finalizing Sony-compatible stream clips with FFmbc...")
+            End If
+            StartFfmbcFinalizeTimer()
+            StartBackgroundFfmbcFinalization()
+            UpdateFinalizeStatus(tempOutputFolder)
+        ElseIf HasPendingFfmbcFinalizeWork() Then
+            StartFfmbcFinalizeTimer()
+            StartBackgroundFfmbcFinalization()
+            UpdateFinalizeStatus(tempOutputFolder)
+        Else
             statusValueLabel.Text = If(exitCode = 0, "Idle", $"Stopped (Exit {exitCode})")
             statusValueLabel.ForeColor = If(exitCode = 0, Color.DarkGreen, Color.DarkOrange)
         End If
+
         UpdateUiState(False)
         UpdateStatusAccent()
     End Sub
