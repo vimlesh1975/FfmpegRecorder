@@ -16,7 +16,7 @@ Partial Class RecorderHostForm
     Private components As System.ComponentModel.IContainer
     Private mainLayout As TableLayoutPanel
     Private commonGroupBox As GroupBox
-    Private commonPanel As FlowLayoutPanel
+    Private commonPanel As TableLayoutPanel
     Private commonTitleLabel As Label
     Private profileLabel As Label
     Private profileComboBox As ComboBox
@@ -58,7 +58,7 @@ Partial Class RecorderHostForm
         components = New System.ComponentModel.Container()
         mainLayout = New TableLayoutPanel()
         commonGroupBox = New GroupBox()
-        commonPanel = New FlowLayoutPanel()
+        commonPanel = New TableLayoutPanel()
         commonTitleLabel = New Label()
         profileLabel = New Label()
         profileComboBox = New ComboBox()
@@ -136,36 +136,17 @@ Partial Class RecorderHostForm
         commonGroupBox.Size = New Size(1464, 126)
         commonGroupBox.TabStop = False
         commonGroupBox.Text = "COMMON"
-        commonPanel.AutoSize = True
-        commonPanel.Controls.Add(commonTitleLabel)
-        commonPanel.Controls.Add(profileLabel)
-        commonPanel.Controls.Add(profileComboBox)
-        commonPanel.Controls.Add(intervalLabel)
-        commonPanel.Controls.Add(intervalUpDown)
-        commonPanel.Controls.Add(recordAllButton)
-        commonPanel.Controls.Add(stopAllButton)
-        commonPanel.Controls.Add(openRecordingsButton)
-        commonPanel.Controls.Add(deleteAllButton)
-        commonPanel.Controls.Add(darkModeCheckBox)
-        commonPanel.Controls.Add(audioListenPanel)
-        commonPanel.Controls.Add(cam1CpuLabel)
-        commonPanel.Controls.Add(cam1CpuValueLabel)
-        commonPanel.Controls.Add(cam2CpuLabel)
-        commonPanel.Controls.Add(cam2CpuValueLabel)
-        commonPanel.Controls.Add(cam3CpuLabel)
-        commonPanel.Controls.Add(cam3CpuValueLabel)
-        commonPanel.Controls.Add(cam4CpuLabel)
-        commonPanel.Controls.Add(cam4CpuValueLabel)
-        commonPanel.Controls.Add(totalCpuLabel)
-        commonPanel.Controls.Add(totalCpuValueLabel)
+        commonPanel.ColumnCount = 2
+        commonPanel.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 100.0F))
+        commonPanel.ColumnStyles.Add(New ColumnStyle(SizeType.AutoSize))
         commonPanel.Dock = DockStyle.Fill
-        commonPanel.FlowDirection = FlowDirection.LeftToRight
         commonPanel.Location = New Point(8, 22)
         commonPanel.Margin = New Padding(0)
         commonPanel.Name = "commonPanel"
         commonPanel.Padding = New Padding(6, 4, 6, 2)
+        commonPanel.RowCount = 1
+        commonPanel.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
         commonPanel.Size = New Size(1448, 96)
-        commonPanel.WrapContents = True
         commonTitleLabel.AutoSize = True
         commonTitleLabel.Font = New Font("Segoe UI", 9.0F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
         commonTitleLabel.Location = New Point(6, 7)

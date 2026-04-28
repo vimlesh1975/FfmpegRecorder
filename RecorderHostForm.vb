@@ -63,12 +63,29 @@ Partial Public Class RecorderHostForm
     Private Sub OrganizeCommonPanel()
         commonPanel.SuspendLayout()
         commonPanel.Controls.Clear()
+        commonPanel.ColumnStyles.Clear()
+        commonPanel.RowStyles.Clear()
+        commonPanel.ColumnCount = 2
+        commonPanel.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 100.0F))
+        commonPanel.ColumnStyles.Add(New ColumnStyle(SizeType.AutoSize))
+        commonPanel.RowCount = 1
+        commonPanel.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
 
-        commonPanel.Controls.Add(BuildCommonSection("Setup", profileLabel, profileComboBox, intervalLabel, intervalUpDown))
-        commonPanel.Controls.Add(BuildCommonSection("Recording", recordAllButton, stopAllButton, openRecordingsButton, deleteAllButton))
-        commonPanel.Controls.Add(BuildCommonSection("Audio", audioListenPanel))
-        commonPanel.Controls.Add(BuildCommonSection("View", darkModeCheckBox))
-        commonPanel.Controls.Add(BuildCommonSection(
+        Dim leftSectionPanel As New FlowLayoutPanel() With {
+            .AutoSize = False,
+            .FlowDirection = FlowDirection.LeftToRight,
+            .Dock = DockStyle.Fill,
+            .Margin = New Padding(0),
+            .Name = "commonLeftPanel",
+            .Padding = New Padding(0),
+            .WrapContents = True
+        }
+
+        leftSectionPanel.Controls.Add(BuildCommonSection("Setup", profileLabel, profileComboBox, intervalLabel, intervalUpDown))
+        leftSectionPanel.Controls.Add(BuildCommonSection("Recording", recordAllButton, stopAllButton, openRecordingsButton, deleteAllButton))
+        leftSectionPanel.Controls.Add(BuildCommonSection("Audio", audioListenPanel))
+        leftSectionPanel.Controls.Add(BuildCommonSection("View", darkModeCheckBox))
+        leftSectionPanel.Controls.Add(BuildCommonSection(
             "CPU",
             cam1CpuLabel,
             cam1CpuValueLabel,
@@ -77,9 +94,21 @@ Partial Public Class RecorderHostForm
             cam3CpuLabel,
             cam3CpuValueLabel,
             cam4CpuLabel,
-            cam4CpuValueLabel,
-            totalCpuLabel,
-            totalCpuValueLabel))
+            cam4CpuValueLabel))
+
+        Dim rightSectionPanel As New FlowLayoutPanel() With {
+            .AutoSize = True,
+            .AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            .FlowDirection = FlowDirection.TopDown,
+            .Margin = New Padding(16, 0, 0, 0),
+            .Name = "commonRightPanel",
+            .Padding = New Padding(0),
+            .WrapContents = False
+        }
+        rightSectionPanel.Controls.Add(BuildPcCpuSection())
+
+        commonPanel.Controls.Add(leftSectionPanel, 0, 0)
+        commonPanel.Controls.Add(rightSectionPanel, 1, 0)
 
         commonPanel.ResumeLayout(True)
     End Sub
@@ -111,6 +140,33 @@ Partial Public Class RecorderHostForm
         Return sectionPanel
     End Function
 
+    Private Function BuildPcCpuSection() As FlowLayoutPanel
+        Dim sectionPanel As New FlowLayoutPanel() With {
+            .AutoSize = True,
+            .AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            .FlowDirection = FlowDirection.LeftToRight,
+            .Margin = New Padding(0, 0, 12, 8),
+            .Padding = New Padding(18, 12, 18, 12),
+            .WrapContents = False,
+            .Name = "pcCpuPanel"
+        }
+
+        totalCpuLabel.AutoSize = True
+        totalCpuLabel.Font = New Font("Segoe UI", 10.0F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
+        totalCpuLabel.Margin = New Padding(0, 11, 12, 0)
+        totalCpuLabel.Text = "PC CPU"
+
+        totalCpuValueLabel.AutoSize = True
+        totalCpuValueLabel.Font = New Font("Segoe UI", 30.0F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
+        totalCpuValueLabel.Margin = New Padding(0)
+        totalCpuValueLabel.Text = "0.0%"
+        totalCpuValueLabel.ForeColor = GetCpuDisplayColor(0.0R)
+
+        sectionPanel.Controls.Add(totalCpuLabel)
+        sectionPanel.Controls.Add(totalCpuValueLabel)
+        Return sectionPanel
+    End Function
+
     Private Shared Function GetBuildTimestampSuffix() As String
         Dim executablePath = Application.ExecutablePath
 
@@ -139,6 +195,11 @@ Partial Public Class RecorderHostForm
         commonGroupBox.ForeColor = commonForeground
         commonPanel.BackColor = commonBackground
         ApplyCommonControlTheme(commonPanel, commonBackground, commonForeground)
+        Dim pcCpuPanel = FindPcCpuPanel()
+        If pcCpuPanel IsNot Nothing Then
+            pcCpuPanel.BackColor = If(isDarkModeEnabled, Color.FromArgb(54, 59, 66), Color.FromArgb(250, 244, 234))
+        End If
+        totalCpuValueLabel.ForeColor = GetCpuDisplayColor(ParseCpuText(totalCpuValueLabel.Text))
 
         StyleCameraSection(cam1GroupBox, leftRecorderControl, cam1Background)
         StyleCameraSection(cam2GroupBox, rightRecorderControl, cam2Background)
@@ -167,7 +228,9 @@ Partial Public Class RecorderHostForm
 
     Private Sub ApplyCommonControlTheme(parentControl As Control, background As Color, foreground As Color)
         For Each childControl As Control In parentControl.Controls
-            If TypeOf childControl Is Label OrElse TypeOf childControl Is FlowLayoutPanel Then
+            If TypeOf childControl Is Label OrElse
+               TypeOf childControl Is FlowLayoutPanel OrElse
+               TypeOf childControl Is TableLayoutPanel Then
                 childControl.BackColor = background
                 childControl.ForeColor = foreground
             ElseIf TypeOf childControl Is CheckBox Then
@@ -366,13 +429,60 @@ Partial Public Class RecorderHostForm
 
             If totalTicks > 0 Then
                 Dim busyTicks = Math.Max(0UL, totalTicks - idleTicks)
-                totalCpuValueLabel.Text = $"{(busyTicks * 100.0R / totalTicks):0.0}%"
+                Dim totalCpuPercent = (busyTicks * 100.0R / totalTicks)
+                totalCpuValueLabel.Text = $"{totalCpuPercent:0.0}%"
+                totalCpuValueLabel.ForeColor = GetCpuDisplayColor(totalCpuPercent)
             End If
         End If
 
         lastSystemCpuSample = currentSample
         hasSystemCpuSample = True
     End Sub
+
+    Private Function FindPcCpuPanel() As FlowLayoutPanel
+        Return FindNamedFlowLayoutPanel(commonPanel, "pcCpuPanel")
+    End Function
+
+    Private Function FindNamedFlowLayoutPanel(parent As Control, panelName As String) As FlowLayoutPanel
+        For Each childControl As Control In parent.Controls
+            If TypeOf childControl Is FlowLayoutPanel AndAlso String.Equals(childControl.Name, panelName, StringComparison.OrdinalIgnoreCase) Then
+                Return DirectCast(childControl, FlowLayoutPanel)
+            End If
+
+            If childControl.HasChildren Then
+                Dim nestedPanel = FindNamedFlowLayoutPanel(childControl, panelName)
+
+                If nestedPanel IsNot Nothing Then
+                    Return nestedPanel
+                End If
+            End If
+        Next
+
+        Return Nothing
+    End Function
+
+    Private Function GetCpuDisplayColor(cpuPercent As Double) As Color
+        If cpuPercent >= 85.0R Then
+            Return Color.FromArgb(220, 53, 69)
+        End If
+
+        If cpuPercent >= 60.0R Then
+            Return Color.FromArgb(245, 159, 0)
+        End If
+
+        Return Color.FromArgb(47, 158, 68)
+    End Function
+
+    Private Function ParseCpuText(cpuText As String) As Double
+        Dim normalizedText = If(cpuText, String.Empty).Replace("%", String.Empty).Trim()
+        Dim cpuPercent As Double
+
+        If Double.TryParse(normalizedText, cpuPercent) Then
+            Return cpuPercent
+        End If
+
+        Return 0.0R
+    End Function
 
     Private Function ReadSystemCpuSample(ByRef sample As SystemCpuSample) As Boolean
         Dim idleTime As FileTimeValue

@@ -1022,6 +1022,37 @@ Public Class StreamRecorderControl
         Return Directory.EnumerateFiles(tempOutputFolder, "*.mxf", SearchOption.TopDirectoryOnly).Any()
     End Function
 
+    Private Function GetExistingFfmbcTempFileCount(tempOutputFolder As String) As Integer
+        If String.IsNullOrWhiteSpace(tempOutputFolder) OrElse Not Directory.Exists(tempOutputFolder) Then
+            Return 0
+        End If
+
+        Return Directory.EnumerateFiles(tempOutputFolder, "*.mxf", SearchOption.TopDirectoryOnly).Count()
+    End Function
+
+    Private Sub UpdateFinalizeStatus(tempOutputFolder As String)
+        If Not isFinalizingRecordingValue Then
+            Return
+        End If
+
+        If InvokeRequired Then
+            BeginInvoke(New Action(Of String)(AddressOf UpdateFinalizeStatus), tempOutputFolder)
+            Return
+        End If
+
+        Dim remainingClipCount = GetExistingFfmbcTempFileCount(tempOutputFolder)
+
+        If remainingClipCount > 0 Then
+            statusValueLabel.Text = $"Finalizing {remainingClipCount} clip{If(remainingClipCount = 1, "", "s")}..."
+            statusValueLabel.ForeColor = Color.DarkOrange
+        Else
+            statusValueLabel.Text = "Ready"
+            statusValueLabel.ForeColor = Color.DarkGreen
+        End If
+
+        UpdateStatusAccent()
+    End Sub
+
     Private Function ClaimFfmbcCandidateFiles(tempOutputFolder As String, includeNewestFile As Boolean) As List(Of String)
         Dim candidateFiles = GetFfmbcCandidateFiles(tempOutputFolder, includeNewestFile)
 
@@ -1051,6 +1082,7 @@ Public Class StreamRecorderControl
 
         Try
             For Each tempFilePath In claimedFiles
+                UpdateFinalizeStatus(Path.GetDirectoryName(tempFilePath))
                 Dim finalFilePath = Path.Combine(finalOutputFolder, Path.GetFileName(tempFilePath))
                 Dim prefix = If(isBackgroundBatch, "Background finalizing", "Finalizing")
                 AppendLog($"{prefix} {Path.GetFileName(tempFilePath)} with FFmbc...")
@@ -1072,6 +1104,8 @@ Public Class StreamRecorderControl
                 Catch ex As Exception
                     AppendLog($"FFmbc finalize succeeded, but the temp file could not be deleted: {ex.Message}")
                 End Try
+
+                UpdateFinalizeStatus(Path.GetDirectoryName(tempFilePath))
             Next
         Finally
             SyncLock ffmbcFinalizeSync
@@ -1434,7 +1468,8 @@ Public Class StreamRecorderControl
             statusStrip.BackColor = Color.FromArgb(245, 159, 0)
         ElseIf previewRunner IsNot Nothing Then
             statusStrip.BackColor = Color.FromArgb(47, 158, 68)
-        ElseIf String.Equals(statusValueLabel.Text, "Idle", StringComparison.OrdinalIgnoreCase) Then
+        ElseIf String.Equals(statusValueLabel.Text, "Idle", StringComparison.OrdinalIgnoreCase) OrElse
+            String.Equals(statusValueLabel.Text, "Ready", StringComparison.OrdinalIgnoreCase) Then
             statusStrip.BackColor = Color.FromArgb(47, 158, 68)
         Else
             statusStrip.BackColor = Color.FromArgb(245, 159, 0)
@@ -1489,10 +1524,8 @@ Public Class StreamRecorderControl
 
         If shouldFinalizeWithFfmbc Then
             isFinalizingRecordingValue = True
-            statusValueLabel.Text = "Finalizing"
-            statusValueLabel.ForeColor = Color.DarkOrange
             UpdateUiState(False)
-            UpdateStatusAccent()
+            UpdateFinalizeStatus(tempOutputFolder)
             If exitCode <> 0 Then
                 AppendLog("Recording stopped with a non-zero exit code, but valid Sony-compatible temp clips were found. Finalizing them with FFmbc...")
             Else
@@ -1504,8 +1537,9 @@ Public Class StreamRecorderControl
             isFinalizingRecordingValue = False
 
             If String.IsNullOrWhiteSpace(finalizeError) Then
-                statusValueLabel.Text = "Idle"
+                statusValueLabel.Text = "Ready"
                 statusValueLabel.ForeColor = Color.DarkGreen
+                AppendLog("Ready. Finalization queue is empty.")
             Else
                 AppendLog($"Sony-compatible stream finalization failed: {finalizeError}")
                 statusValueLabel.Text = "Finalize Failed"

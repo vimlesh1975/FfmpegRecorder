@@ -452,11 +452,15 @@ Partial Public Class RecorderControl
 
         Dim deviceRow As New TableLayoutPanel() With {
             .AutoSize = True,
-            .ColumnCount = 2,
+            .ColumnCount = 6,
             .RowCount = 1,
             .Dock = DockStyle.Fill,
             .Margin = New Padding(0, 4, 0, 0)
         }
+        deviceRow.ColumnStyles.Add(New ColumnStyle(SizeType.AutoSize))
+        deviceRow.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 170.0F))
+        deviceRow.ColumnStyles.Add(New ColumnStyle(SizeType.AutoSize))
+        deviceRow.ColumnStyles.Add(New ColumnStyle(SizeType.AutoSize))
         deviceRow.ColumnStyles.Add(New ColumnStyle(SizeType.AutoSize))
         deviceRow.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 100.0F))
         deviceRow.RowStyles.Add(New RowStyle(SizeType.AutoSize))
@@ -470,39 +474,29 @@ Partial Public Class RecorderControl
 
         deviceComboBox.DropDownStyle = ComboBoxStyle.DropDownList
         deviceComboBox.Dock = DockStyle.Fill
-        deviceComboBox.Margin = New Padding(0, 3, 0, 3)
+        deviceComboBox.Width = 170
+        deviceComboBox.Margin = New Padding(0, 3, 8, 3)
         AddHandler deviceComboBox.SelectedIndexChanged, AddressOf OnDeviceChanged
-
-        Dim buttonRow As New TableLayoutPanel() With {
-            .AutoSize = True,
-            .ColumnCount = 4,
-            .RowCount = 1,
-            .Anchor = AnchorStyles.Left,
-            .Margin = New Padding(0, 4, 0, 0)
-        }
-        buttonRow.ColumnStyles.Add(New ColumnStyle(SizeType.AutoSize))
-        buttonRow.ColumnStyles.Add(New ColumnStyle(SizeType.AutoSize))
-        buttonRow.ColumnStyles.Add(New ColumnStyle(SizeType.AutoSize))
-        buttonRow.ColumnStyles.Add(New ColumnStyle(SizeType.AutoSize))
-        buttonRow.RowStyles.Add(New RowStyle(SizeType.AutoSize))
 
         recordButton.Text = "Record"
         recordButton.AutoSize = False
         recordButton.Size = New Size(76, 28)
         recordButton.Font = New Font(recordButton.Font, FontStyle.Bold)
         recordButton.Margin = New Padding(0, 0, 4, 0)
+        recordButton.Anchor = AnchorStyles.Left
 
         stopButton.Text = "Stop"
         stopButton.AutoSize = False
         stopButton.Size = New Size(64, 28)
         stopButton.Margin = New Padding(0, 0, 4, 0)
+        stopButton.Anchor = AnchorStyles.Left
 
         includeInRecordAllCheckBox.AutoSize = True
         includeInRecordAllCheckBox.Checked = True
         includeInRecordAllCheckBox.CheckState = CheckState.Checked
         includeInRecordAllCheckBox.Text = "Record All"
         includeInRecordAllCheckBox.Anchor = AnchorStyles.Left
-        includeInRecordAllCheckBox.Margin = New Padding(8, 5, 8, 0)
+        includeInRecordAllCheckBox.Margin = New Padding(8, 5, 0, 0)
 
         recordingElapsedLabel.AutoSize = True
         recordingElapsedLabel.Font = New Font("Segoe UI", 9.0F, FontStyle.Bold)
@@ -528,16 +522,14 @@ Partial Public Class RecorderControl
 
         deviceRow.Controls.Add(deviceLabel, 0, 0)
         deviceRow.Controls.Add(deviceComboBox, 1, 0)
-
-        buttonRow.Controls.Add(recordButton, 0, 0)
-        buttonRow.Controls.Add(stopButton, 1, 0)
-        buttonRow.Controls.Add(includeInRecordAllCheckBox, 2, 0)
-        buttonRow.Controls.Add(recordingElapsedLabel, 3, 0)
+        deviceRow.Controls.Add(recordButton, 2, 0)
+        deviceRow.Controls.Add(stopButton, 3, 0)
+        deviceRow.Controls.Add(includeInRecordAllCheckBox, 4, 0)
+        deviceRow.Controls.Add(recordingElapsedLabel, 5, 0)
 
         panel.Controls.Add(headerRow, 0, 0)
         panel.Controls.Add(deviceRow, 0, 1)
-        panel.Controls.Add(buttonRow, 0, 2)
-        panel.Controls.Add(deviceValueLabel, 0, 3)
+        panel.Controls.Add(deviceValueLabel, 0, 2)
 
         Return panel
     End Function
@@ -1311,6 +1303,7 @@ Partial Public Class RecorderControl
 
         Try
             For Each tempFilePath In claimedFiles
+                UpdateFinalizeStatus(Path.GetDirectoryName(tempFilePath))
                 Dim finalFilePath = Path.Combine(finalOutputFolder, Path.GetFileName(tempFilePath))
                 Dim prefix = If(isBackgroundBatch, "Background finalizing", "Finalizing")
                 AppendLog($"{prefix} {Path.GetFileName(tempFilePath)} with FFmbc...")
@@ -1332,6 +1325,8 @@ Partial Public Class RecorderControl
                 Catch ex As Exception
                     AppendLog($"FFmbc finalize succeeded, but the temp file could not be deleted: {ex.Message}")
                 End Try
+
+                UpdateFinalizeStatus(Path.GetDirectoryName(tempFilePath))
             Next
         Finally
             SyncLock ffmbcFinalizeSync
@@ -1402,6 +1397,37 @@ Partial Public Class RecorderControl
 
         Return Directory.EnumerateFiles(tempOutputFolder, "*.mxf", SearchOption.TopDirectoryOnly).Any()
     End Function
+
+    Private Function GetExistingFfmbcTempFileCount(tempOutputFolder As String) As Integer
+        If String.IsNullOrWhiteSpace(tempOutputFolder) OrElse Not Directory.Exists(tempOutputFolder) Then
+            Return 0
+        End If
+
+        Return Directory.EnumerateFiles(tempOutputFolder, "*.mxf", SearchOption.TopDirectoryOnly).Count()
+    End Function
+
+    Private Sub UpdateFinalizeStatus(tempOutputFolder As String)
+        If Not isFinalizingRecordingValue Then
+            Return
+        End If
+
+        If InvokeRequired Then
+            BeginInvoke(New Action(Of String)(AddressOf UpdateFinalizeStatus), tempOutputFolder)
+            Return
+        End If
+
+        Dim remainingClipCount = GetExistingFfmbcTempFileCount(tempOutputFolder)
+
+        If remainingClipCount > 0 Then
+            statusValueLabel.Text = $"Finalizing {remainingClipCount} clip{If(remainingClipCount = 1, "", "s")}..."
+            statusValueLabel.ForeColor = Color.DarkOrange
+        Else
+            statusValueLabel.Text = "Ready"
+            statusValueLabel.ForeColor = Color.DarkGreen
+        End If
+
+        UpdateRecorderStatusAccent()
+    End Sub
 
     Private Function ClaimFfmbcCandidateFiles(tempOutputFolder As String, includeNewestFile As Boolean) As List(Of String)
         Dim candidateFiles = GetFfmbcCandidateFiles(tempOutputFolder, includeNewestFile)
@@ -1884,7 +1910,8 @@ Partial Public Class RecorderControl
             recorderStatusStrip.BackColor = Color.FromArgb(220, 53, 69)
         ElseIf Not deckLinkInputAvailableValue Then
             recorderStatusStrip.BackColor = Color.FromArgb(245, 159, 0)
-        ElseIf String.Equals(statusValueLabel.Text, "Idle", StringComparison.OrdinalIgnoreCase) Then
+        ElseIf String.Equals(statusValueLabel.Text, "Idle", StringComparison.OrdinalIgnoreCase) OrElse
+            String.Equals(statusValueLabel.Text, "Ready", StringComparison.OrdinalIgnoreCase) Then
             recorderStatusStrip.BackColor = Color.FromArgb(47, 158, 68)
         Else
             recorderStatusStrip.BackColor = Color.FromArgb(245, 159, 0)
@@ -2178,8 +2205,7 @@ Partial Public Class RecorderControl
 
         If shouldFinalizeWithFfmbc Then
             isFinalizingRecordingValue = True
-            statusValueLabel.Text = "Finalizing"
-            statusValueLabel.ForeColor = Color.DarkOrange
+            UpdateFinalizeStatus(tempOutputFolder)
             If exitCode <> 0 Then
                 AppendLog("Recording stopped with a non-zero exit code, but valid Sony-compatible temp clips were found. Finalizing them with FFmbc...")
             Else
@@ -2211,9 +2237,9 @@ Partial Public Class RecorderControl
             ResetFfmbcFinalizeState()
 
             If String.IsNullOrWhiteSpace(finalizeError) Then
-                statusValueLabel.Text = "Idle"
+                statusValueLabel.Text = "Ready"
                 statusValueLabel.ForeColor = Color.DarkGreen
-                AppendLog("Sony-compatible MXF finalization completed.")
+                AppendLog("Ready. Finalization queue is empty.")
             Else
                 statusValueLabel.Text = "Finalize Failed"
                 statusValueLabel.ForeColor = Color.DarkOrange
