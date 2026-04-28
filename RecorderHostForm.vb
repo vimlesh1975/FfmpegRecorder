@@ -146,6 +146,7 @@ Partial Public Class RecorderHostForm
             .AutoSizeMode = AutoSizeMode.GrowAndShrink,
             .FlowDirection = FlowDirection.LeftToRight,
             .Margin = New Padding(0, 0, 12, 8),
+            .MinimumSize = New Size(340, 0),
             .Padding = New Padding(18, 12, 18, 12),
             .WrapContents = False,
             .Name = "pcCpuPanel"
@@ -156,10 +157,13 @@ Partial Public Class RecorderHostForm
         totalCpuLabel.Margin = New Padding(0, 11, 12, 0)
         totalCpuLabel.Text = "PC CPU"
 
-        totalCpuValueLabel.AutoSize = True
-        totalCpuValueLabel.Font = New Font("Segoe UI", 30.0F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
+        totalCpuValueLabel.AutoSize = False
+        totalCpuValueLabel.Font = New Font("Consolas", 28.0F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
         totalCpuValueLabel.Margin = New Padding(0)
+        totalCpuValueLabel.MinimumSize = New Size(210, 48)
+        totalCpuValueLabel.Size = totalCpuValueLabel.MinimumSize
         totalCpuValueLabel.Text = "0.0%"
+        totalCpuValueLabel.TextAlign = ContentAlignment.MiddleRight
         totalCpuValueLabel.ForeColor = GetCpuDisplayColor(0.0R)
 
         sectionPanel.Controls.Add(totalCpuLabel)

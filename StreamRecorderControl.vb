@@ -688,7 +688,7 @@ Public Class StreamRecorderControl
         builder.Append("-hide_banner -loglevel warning -fflags nobuffer -flags low_delay ")
 
         For Each inputUrl In inputUrls
-            AppendInputArgument(builder, inputUrl)
+            AppendPreviewInputArgument(builder, inputUrl)
         Next
 
         builder.Append("-filter_complex ").Append(Quote(BuildPreviewFilterGraph(inputUrls))).Append(" ")
@@ -696,6 +696,15 @@ Public Class StreamRecorderControl
         builder.Append("-an -flush_packets 1 -c:v mjpeg -q:v 6 -f mjpeg pipe:1")
         Return builder.ToString()
     End Function
+
+    Private Sub AppendPreviewInputArgument(builder As StringBuilder, inputUrl As String)
+        If builder Is Nothing Then
+            Return
+        End If
+
+        builder.Append("-re ")
+        builder.Append("-i ").Append(Quote(inputUrl)).Append(" ")
+    End Sub
 
     Private Sub AppendInputArgument(builder As StringBuilder, inputUrl As String)
         If builder Is Nothing Then
@@ -1254,17 +1263,17 @@ Public Class StreamRecorderControl
     End Function
 
     Private Function ResolveInputUrls(sourceValue As String) As IReadOnlyList(Of String)
-        If Not IsYouTubeUrl(sourceValue) Then
+        If Not RequiresYtDlpResolution(sourceValue) Then
             Return {sourceValue}
         End If
 
         Dim ytDlpPath = Path.Combine(AppContext.BaseDirectory, "yt-dlp.exe")
 
         If Not File.Exists(ytDlpPath) Then
-            Throw New FileNotFoundException($"yt-dlp.exe was not found in {AppContext.BaseDirectory}. Copy yt-dlp.exe there to record YouTube URLs.")
+            Throw New FileNotFoundException($"yt-dlp.exe was not found in {AppContext.BaseDirectory}. Copy yt-dlp.exe there to use page URLs like YouTube or Facebook.")
         End If
 
-        AppendLog("Resolving YouTube media URL with yt-dlp...")
+        AppendLog($"Resolving {GetResolvableSourceName(sourceValue)} media URL with yt-dlp...")
 
         Dim startInfo As New ProcessStartInfo() With {
             .FileName = ytDlpPath,
@@ -1327,9 +1336,29 @@ Public Class StreamRecorderControl
                 Throw New InvalidOperationException("yt-dlp did not return a media URL.")
             End If
 
-            AppendLog($"Resolved {resolvedUrls.Length} YouTube media input(s).")
+            AppendLog($"Resolved {resolvedUrls.Length} media input(s).")
             Return resolvedUrls
         End Using
+    End Function
+
+    Private Shared Function RequiresYtDlpResolution(sourceValue As String) As Boolean
+        If String.IsNullOrWhiteSpace(sourceValue) Then
+            Return False
+        End If
+
+        Return IsYouTubeUrl(sourceValue) OrElse IsFacebookUrl(sourceValue)
+    End Function
+
+    Private Shared Function GetResolvableSourceName(sourceValue As String) As String
+        If IsYouTubeUrl(sourceValue) Then
+            Return "YouTube"
+        End If
+
+        If IsFacebookUrl(sourceValue) Then
+            Return "Facebook"
+        End If
+
+        Return "stream"
     End Function
 
     Private Shared Function IsYouTubeUrl(sourceValue As String) As Boolean
@@ -1339,6 +1368,15 @@ Public Class StreamRecorderControl
 
         Return sourceValue.Contains("youtube.com", StringComparison.OrdinalIgnoreCase) OrElse
             sourceValue.Contains("youtu.be", StringComparison.OrdinalIgnoreCase)
+    End Function
+
+    Private Shared Function IsFacebookUrl(sourceValue As String) As Boolean
+        If String.IsNullOrWhiteSpace(sourceValue) Then
+            Return False
+        End If
+
+        Return sourceValue.Contains("facebook.com", StringComparison.OrdinalIgnoreCase) OrElse
+            sourceValue.Contains("fb.watch", StringComparison.OrdinalIgnoreCase)
     End Function
 
     Private Sub StopRecording(sender As Object, e As EventArgs)
