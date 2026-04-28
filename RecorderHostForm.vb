@@ -1,5 +1,6 @@
 Imports System.Diagnostics
 Imports System.Drawing
+Imports System.Globalization
 Imports System.IO
 Imports System.Runtime.InteropServices
 
@@ -212,12 +213,39 @@ Partial Public Class RecorderHostForm
 
     Private Shared Function GetBuildTimestampSuffix() As String
         Dim executablePath = Application.ExecutablePath
+        Dim executableNameTimestamp = GetTimestampSuffixFromExecutableName(executablePath)
+
+        If Not String.IsNullOrWhiteSpace(executableNameTimestamp) Then
+            Return executableNameTimestamp
+        End If
 
         If Not String.IsNullOrWhiteSpace(executablePath) AndAlso File.Exists(executablePath) Then
             Return File.GetLastWriteTime(executablePath).ToString("ddMMyyyy_HHmmss")
         End If
 
         Return DateTime.Now.ToString("ddMMyyyy_HHmmss")
+    End Function
+
+    Private Shared Function GetTimestampSuffixFromExecutableName(executablePath As String) As String
+        If String.IsNullOrWhiteSpace(executablePath) Then
+            Return Nothing
+        End If
+
+        Dim executableName = Path.GetFileNameWithoutExtension(executablePath)
+        Const timestampedExecutablePrefix As String = "FfmpegRecorder_"
+
+        If Not executableName.StartsWith(timestampedExecutablePrefix, StringComparison.OrdinalIgnoreCase) Then
+            Return Nothing
+        End If
+
+        Dim timestampText = executableName.Substring(timestampedExecutablePrefix.Length)
+        Dim parsedTimestamp As DateTime
+
+        If DateTime.TryParseExact(timestampText, "yyyyMMdd_HHmmss", CultureInfo.InvariantCulture, DateTimeStyles.None, parsedTimestamp) Then
+            Return timestampText
+        End If
+
+        Return Nothing
     End Function
 
     Private Sub ApplyVisualTheme()
