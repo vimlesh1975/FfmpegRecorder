@@ -1,46 +1,26 @@
 # FfmpegRecorder
 
-Windows desktop multi-camera recorder for Blackmagic DeckLink inputs, built with VB.NET WinForms and local FFmpeg binaries.
+Windows desktop recorder for Blackmagic DeckLink inputs and network/file streams, built with VB.NET WinForms and local FFmpeg tools.
 
-This app is designed for simple operator use: live preview, per-camera or global record control, audio listen selection, and timestamped clip recording for up to 4 camera panels.
+The app is intended for live operators who need quick visual confirmation, per-camera or global record control, selectable audio monitoring, and timestamped segmented clips.
 
-## What It Does
+## Features
 
-- Records DeckLink sources to timestamped clips such as `CAM1_25042026_160045.mxf`
-- Supports 4 camera panels: `CAM1`, `CAM2`, `CAM3`, `CAM4`
-- Shows live preview with left/right vertical audio level bars
-- Lets you record one camera or all cameras together
-- Lets you listen to one selected camera audio feed at a time
-- Shows per-camera CPU usage plus total PC CPU
-- Saves each camera's DeckLink, profile, and interval settings
-- Uses only local `ffmpeg.exe`, `ffplay.exe`, and `ffprobe.exe` from the app folder
-
-## Main Features
-
-- Shared `COMMON` control area
-  - Profile selection
-  - Clip interval selection
-  - `Record All`
-  - `Stop All`
-  - `Open Recordings`
-  - `Delete All`
-  - `Listen Audio`
-  - CPU summary for all cameras and the PC
-- Individual camera controls
-  - DeckLink selector
-  - Status
-  - Profile
-  - Interval
-  - `Record`
-  - `Stop`
-  - Live FFmpeg log output
-- Visual operator layout
-  - Each camera panel has its own color theme
-  - Shared `COMMON` area has a distinct theme
+- Records up to 4 DeckLink camera inputs: `CAM1`, `CAM2`, `CAM3`, and `CAM4`
+- Records stream, URL, or local file sources through a separate stream recorder panel
+- Shows live preview with left/right audio level meters
+- Supports individual record/stop and shared `Record All` / `Stop All`
+- Lets each camera opt in or out of `Record All`
+- Monitors one selected camera audio feed at a time
+- Shows per-camera CPU usage and total PC CPU usage
+- Provides a configurable recording directory with a browse button
+- Supports dark mode
+- Saves camera device, profile, interval, and recording-folder settings between runs
+- Uses local media binaries beside the app executable instead of falling back to `PATH`
 
 ## Default Camera Mapping
 
-The app prefers these inputs by default:
+The app prefers these DeckLink inputs by default:
 
 | Camera | Preferred DeckLink input |
 | --- | --- |
@@ -49,34 +29,60 @@ The app prefers these inputs by default:
 | `CAM3` | `DeckLink Duo (2)` |
 | `CAM4` | `DeckLink Duo (3)` |
 
-The app also prevents two panels from silently using the same DeckLink input at the same time.
+The app reserves DeckLink inputs while panels are active so two camera panels do not silently use the same device.
 
 ## Recording Profiles
 
-All current profiles record at `1920x1080`.
-
-| Profile | Container | Notes |
+| Profile | Extension | Notes |
 | --- | --- | --- |
-| `XDCAM HD422` | `MXF` | Broadcast-style MPEG-2 4:2:2 edit format |
-| `MP4 High Quality` | `MP4` | `1080p25`, higher quality, larger files |
-| `MP4 Low Bitrate` | `MP4` | `1080p25`, lighter files, lower bitrate |
-| `ProRes Proxy (Small)` | `MOV` | Smallest ProRes option |
-| `ProRes LT (Light)` | `MOV` | Lighter edit-friendly ProRes |
-| `ProRes 422 (Medium)` | `MOV` | Balanced ProRes profile |
-| `ProRes 422 HQ (High)` | `MOV` | Highest quality ProRes profile in this app |
+| `XDCAM HD422` | `.mxf` | MPEG-2 4:2:2 broadcast-style MXF |
+| `XDCAM Sony Compatible` | `.mxf` | Sony-compatible MXF workflow finalized with FFmbc |
+| `MP4 High Quality` | `.mp4` | H.264, CRF 18, AAC audio |
+| `MP4 Low Bitrate` | `.mp4` | H.264, CRF 24, AAC audio |
+| `ProRes Proxy (Small)` | `.mov` | ProRes proxy |
+| `ProRes LT (Light)` | `.mov` | Lightweight ProRes |
+| `ProRes 422 (Medium)` | `.mov` | Balanced ProRes |
+| `ProRes 422 HQ (High)` | `.mov` | Highest quality ProRes profile in this app |
 
-### MP4 Note
+DeckLink recording is configured for `1080i50`. MP4 profiles are written as `1920x1080` at `25 fps`.
 
-Both MP4 profiles are `1920x1080` at `25 fps`.
+## Sony-Compatible MXF Notes
 
-The difference is compression:
+`XDCAM Sony Compatible` requires an FFmbc executable in the app folder. The app looks for:
 
-- `MP4 High Quality` uses better quality settings and more CPU
-- `MP4 Low Bitrate` uses lighter settings and smaller files
+```text
+ffmbc.exe
+ffmbc*.exe
+```
 
-## Clip Naming And Storage
+For this profile, recordings are first written into:
 
-Clips are written with camera-based timestamp names:
+```text
+<RecordingDirectory>\.ffmbc-temp\<CameraOrStream>\<timestamp>
+```
+
+Completed clips are finalized with FFmbc in the background and moved into the selected recording directory. Do not delete the `.ffmbc-temp` folder while finalization is still running.
+
+## Stream Recorder
+
+The stream recorder panel accepts:
+
+- Direct media URLs
+- Local file paths
+- YouTube page URLs
+- Facebook / `fb.watch` page URLs
+
+For YouTube and Facebook page URLs, copy `yt-dlp.exe` beside the app executable. The app uses it to resolve the actual media URL before starting FFmpeg.
+
+Stream recordings are named like:
+
+```text
+Stream_ddMMyyyy_HHmmss.ext
+```
+
+## Clip Naming
+
+DeckLink camera clips are written with camera-based timestamp names:
 
 ```text
 CAM1_ddMMyyyy_HHmmss.ext
@@ -85,118 +91,142 @@ CAM3_ddMMyyyy_HHmmss.ext
 CAM4_ddMMyyyy_HHmmss.ext
 ```
 
-Default recordings folder:
+The selected clip interval controls segment length. The interval can be set globally in the `COMMON` area or per camera/stream panel.
+
+## Recording Folder
+
+Default folder:
 
 ```text
 C:\Users\<YourUser>\Videos\FFmpegRecorder
 ```
 
+Use the `Recording Dir` field or `Browse...` button in the `COMMON` area to choose another folder. The setting is stored under the current Windows user profile and restored next time.
+
 ## Requirements
 
 - Windows
-- Blackmagic DeckLink hardware and Desktop Video drivers
-- A DeckLink-enabled FFmpeg build
-- `.NET 10` Windows Desktop runtime if you build/run from source
+- x64 runtime/build target
+- Blackmagic DeckLink hardware and Desktop Video drivers for camera capture
+- DeckLink-enabled FFmpeg build
+- `.NET 10` Windows Desktop runtime to run/build from source
+- Optional: FFmbc for `XDCAM Sony Compatible`
+- Optional: `yt-dlp.exe` for YouTube/Facebook stream-page recording
 
-## Important FFmpeg Requirement
+## Local Binary Requirements
 
-This project depends on FFmpeg builds that include DeckLink support.
-
-Generic Windows FFmpeg builds often do **not** include the `decklink` input. If FFmpeg cannot open DeckLink devices, verify your local binary with:
-
-```powershell
-ffmpeg -sources decklink
-```
-
-The app is intentionally configured to use only the local binaries placed beside the executable:
+Place these tools beside `FfmpegRecorder.exe`:
 
 ```text
-bin\Debug\net10.0-windows\ffmpeg.exe
-bin\Debug\net10.0-windows\ffplay.exe
-bin\Debug\net10.0-windows\ffprobe.exe
+ffmpeg.exe
+ffplay.exe
+ffprobe.exe
 ```
 
-It does not fall back to `PATH`.
+Optional tools:
 
-## Build From Source
-
-```powershell
-dotnet build FfmpegRecorder.vbproj
+```text
+ffmbc.exe or ffmbc-*.exe
+yt-dlp.exe
 ```
 
-Default build output:
+For a Debug build, the expected folder is:
 
 ```text
 bin\Debug\net10.0-windows
 ```
 
+This project intentionally uses local binaries from the app folder. It does not search `PATH`.
+
+To verify that your FFmpeg build supports DeckLink:
+
+```powershell
+.\ffmpeg.exe -sources decklink
+```
+
+Generic Windows FFmpeg builds often do not include the `decklink` input.
+
+## Build
+
+```powershell
+dotnet build FfmpegRecorder.vbproj
+```
+
+Default output:
+
+```text
+bin\Debug\net10.0-windows
+```
+
+The project also creates a timestamped copy of the executable after each successful build, for example:
+
+```text
+FfmpegRecorder_20260428_165229.exe
+```
+
 ## Run
 
-After build, launch:
+Launch:
 
 ```text
 bin\Debug\net10.0-windows\FfmpegRecorder.exe
 ```
 
-Make sure these files are present in the same folder:
+Before recording, confirm the required FFmpeg tools are in the same folder as the executable.
 
-- `ffmpeg.exe`
-- `ffplay.exe`
-- `ffprobe.exe`
-
-## How To Use
+## Basic Operation
 
 1. Start the app.
-2. Confirm the DeckLink source for each camera panel.
-3. Pick a shared profile and interval in the `COMMON` area, or change them per camera.
-4. Choose which camera audio you want to listen to in `Listen Audio`.
-5. Use `Record All` or the individual `Record` buttons.
-6. Use `Open Recordings` to open the output folder.
+2. Confirm each DeckLink source in the camera panels.
+3. Choose a recording profile and clip interval in `COMMON`, or adjust individual panels.
+4. Confirm the `Recording Dir`.
+5. Choose the camera audio feed in `Listen Audio`, or set it to `Off`.
+6. Use `Record All` or individual `Record` buttons.
+7. Use `Stop All` or individual `Stop` buttons.
+8. Use `Open Recordings` to open the output folder.
 
-## Settings Persistence
+`Delete All` deletes files in the selected recording directory only after all camera and stream recordings are stopped.
 
-Each camera stores its own settings under the current Windows user profile, including:
+## Settings
 
-- selected DeckLink input
-- selected profile
-- selected interval
+Settings are stored under:
 
-These settings are restored the next time the app opens.
+```text
+C:\Users\<YourUser>\AppData\Roaming\FfmpegRecorder
+```
 
-## Notes
+Camera settings are stored per camera panel:
 
-- Only one camera audio source is monitored at a time.
-- A single DeckLink input should not be opened by multiple recorder panels at once.
-- `Delete All` is blocked while any recording is active.
-- The app records segmented clips based on the selected interval.
-- MP4 segment timing is aligned using forced keyframes so clip lengths follow the requested interval more closely.
+```text
+settings-CAM1.txt
+settings-CAM2.txt
+settings-CAM3.txt
+settings-CAM4.txt
+```
+
+The recording directory is stored in:
+
+```text
+recording-directory.txt
+```
 
 ## Project Structure
 
 | File | Purpose |
 | --- | --- |
-| `Form1.vb` | `RecorderControl` logic |
-| `Form1.Designer.vb` | `RecorderControl` UI |
-| `RecorderHostForm.vb` | Main host form logic |
-| `RecorderHostForm.Designer.vb` | Main host form UI |
-| `RecorderOptions.vb` | FFmpeg argument generation |
-| `FfmpegProcessRunner.vb` | FFmpeg / ffplay process management |
-| `PreviewFrameReader.vb` | Idle preview reader |
-| `NetworkPreviewReader.vb` | Recording preview stream reader |
 | `Program.vb` | Application startup |
+| `RecorderHostForm.vb` | Main form, common controls, CPU display, shared recording folder |
+| `RecorderHostForm.Designer.vb` | Main form designer layout |
+| `Form1.vb` | DeckLink `RecorderControl` logic |
+| `Form1.Designer.vb` | DeckLink recorder designer layout |
+| `StreamRecorderControl.vb` | Stream, URL, and file recording panel |
+| `RecorderOptions.vb` | FFmpeg argument generation for DeckLink recording and preview |
+| `FfmpegProcessRunner.vb` | FFmpeg / FFplay process wrapper |
+| `PreviewFrameReader.vb` | Pipe-based preview frame reader |
+| `NetworkPreviewReader.vb` | TCP preview frame reader during recording |
+| `RecordingDirectorySettings.vb` | Shared recording directory persistence |
+| `FfmbcConversionQueue.vb` | Background FFmbc finalization queue |
 
-## Included Binaries
-
-This repository currently tracks the packaged app output and FFmpeg tools in the default build folder for convenience.
-
-Bundled FFmpeg license file:
-
-```text
-bin\Debug\net10.0-windows\LICENSE
-```
-
-## GitHub
-
-Repository:
+## Repository
 
 [https://github.com/vimlesh1975/FfmpegRecorder](https://github.com/vimlesh1975/FfmpegRecorder)
