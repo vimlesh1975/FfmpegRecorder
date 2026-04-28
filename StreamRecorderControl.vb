@@ -74,7 +74,7 @@ Public Class StreamRecorderControl
     Private ReadOnly ffmbcFinalizeSync As New Object()
     Private ReadOnly ffmbcProcessedTempFiles As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
     Private ReadOnly ffmbcProcessingTempFiles As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
-    Private ffmbcBackgroundFinalizeTask As Task
+    Private ffmbcBackgroundFinalizeTask As Task(Of String)
 
     Public Sub New()
         InitializeOperatorUi()
@@ -939,18 +939,35 @@ Public Class StreamRecorderControl
                 Return "FFmbc could not be started."
             End If
 
-            Dim standardOutput = process.StandardOutput.ReadToEnd()
-            Dim standardError = process.StandardError.ReadToEnd()
+            Dim standardOutput As New StringBuilder()
+            Dim standardError As New StringBuilder()
+
+            AddHandler process.OutputDataReceived,
+                Sub(sender, e)
+                    If e.Data IsNot Nothing Then
+                        standardOutput.AppendLine(e.Data)
+                    End If
+                End Sub
+
+            AddHandler process.ErrorDataReceived,
+                Sub(sender, e)
+                    If e.Data IsNot Nothing Then
+                        standardError.AppendLine(e.Data)
+                    End If
+                End Sub
+
+            process.BeginOutputReadLine()
+            process.BeginErrorReadLine()
             process.WaitForExit()
 
-            If Not String.IsNullOrWhiteSpace(standardOutput) Then
-                For Each line In standardOutput.Split({ControlChars.CrLf, ControlChars.Lf}, StringSplitOptions.RemoveEmptyEntries)
+            If standardOutput.Length > 0 Then
+                For Each line In standardOutput.ToString().Split({ControlChars.CrLf, ControlChars.Lf}, StringSplitOptions.RemoveEmptyEntries)
                     AppendLog($"FFmbc: {line}")
                 Next
             End If
 
-            If Not String.IsNullOrWhiteSpace(standardError) Then
-                For Each line In standardError.Split({ControlChars.CrLf, ControlChars.Lf}, StringSplitOptions.RemoveEmptyEntries)
+            If standardError.Length > 0 Then
+                For Each line In standardError.ToString().Split({ControlChars.CrLf, ControlChars.Lf}, StringSplitOptions.RemoveEmptyEntries)
                     AppendLog($"FFmbc: {line}")
                 Next
             End If
@@ -995,6 +1012,14 @@ Public Class StreamRecorderControl
                 Where(Function(path) Not ffmbcProcessedTempFiles.Contains(path) AndAlso Not ffmbcProcessingTempFiles.Contains(path)).
                 ToList()
         End SyncLock
+    End Function
+
+    Private Function HasAnyFfmbcTempFiles(tempOutputFolder As String) As Boolean
+        If String.IsNullOrWhiteSpace(tempOutputFolder) OrElse Not Directory.Exists(tempOutputFolder) Then
+            Return False
+        End If
+
+        Return Directory.EnumerateFiles(tempOutputFolder, "*.mxf", SearchOption.TopDirectoryOnly).Any()
     End Function
 
     Private Function ClaimFfmbcCandidateFiles(tempOutputFolder As String, includeNewestFile As Boolean) As List(Of String)
@@ -1088,16 +1113,64 @@ Public Class StreamRecorderControl
         End SyncLock
     End Sub
 
-    Private Async Function AwaitBackgroundFfmbcFinalizationAsync() As Task
-        Dim backgroundTask As Task = Nothing
+    Private Async Function AwaitBackgroundFfmbcFinalizationAsync() As Task(Of String)
+        Dim backgroundTask As Task(Of String) = Nothing
 
         SyncLock ffmbcFinalizeSync
             backgroundTask = ffmbcBackgroundFinalizeTask
         End SyncLock
 
-        If backgroundTask IsNot Nothing Then
-            Await backgroundTask
+        If backgroundTask Is Nothing Then
+            Return Nothing
         End If
+
+        Dim finalizeError = Await backgroundTask
+
+        SyncLock ffmbcFinalizeSync
+            If Object.ReferenceEquals(ffmbcBackgroundFinalizeTask, backgroundTask) Then
+                ffmbcBackgroundFinalizeTask = Nothing
+            End If
+        End SyncLock
+
+        Return finalizeError
+    End Function
+
+    Private Async Function FinalizeAllPendingFfmbcFilesAsync(tempOutputFolder As String, finalOutputFolder As String) As Task(Of String)
+        Dim emptyPassCount = 0
+
+        Do
+            Dim backgroundError = Await AwaitBackgroundFfmbcFinalizationAsync()
+
+            If Not String.IsNullOrWhiteSpace(backgroundError) Then
+                Return backgroundError
+            End If
+
+            Dim finalizeError = Await Task.Run(Function() FinalizeRemainingRecordingWithFfmbc(tempOutputFolder, finalOutputFolder))
+
+            If Not String.IsNullOrWhiteSpace(finalizeError) Then
+                Return finalizeError
+            End If
+
+            Dim hasPendingFiles = GetFfmbcCandidateFiles(tempOutputFolder, includeNewestFile:=True).Count > 0
+            Dim hasActiveBackgroundTask As Boolean
+
+            SyncLock ffmbcFinalizeSync
+                hasActiveBackgroundTask = ffmbcBackgroundFinalizeTask IsNot Nothing AndAlso Not ffmbcBackgroundFinalizeTask.IsCompleted
+            End SyncLock
+
+            If hasPendingFiles OrElse hasActiveBackgroundTask Then
+                emptyPassCount = 0
+                Continue Do
+            End If
+
+            emptyPassCount += 1
+
+            If emptyPassCount >= 2 Then
+                Return Nothing
+            End If
+
+            Await Task.Delay(250)
+        Loop
     End Function
 
     Private Function FinalizeRemainingRecordingWithFfmbc(tempOutputFolder As String, finalOutputFolder As String) As String
@@ -1387,9 +1460,9 @@ Public Class StreamRecorderControl
             Return
         End If
 
-        Dim shouldFinalizeWithFfmbc = currentRecordingUsesFfmbcFallbackValue AndAlso exitCode = 0
         Dim tempOutputFolder = currentRecordingTempOutputFolder
         Dim finalOutputFolder = currentRecordingFinalOutputFolder
+        Dim shouldFinalizeWithFfmbc = currentRecordingUsesFfmbcFallbackValue AndAlso (exitCode = 0 OrElse HasAnyFfmbcTempFiles(tempOutputFolder))
         StopFfmbcFinalizeTimer()
         TearDownRunner()
         AppendLog($"Stream recording exited with code {exitCode}.")
@@ -1420,10 +1493,13 @@ Public Class StreamRecorderControl
             statusValueLabel.ForeColor = Color.DarkOrange
             UpdateUiState(False)
             UpdateStatusAccent()
-            AppendLog("Finalizing Sony-compatible stream clips with FFmbc...")
+            If exitCode <> 0 Then
+                AppendLog("Recording stopped with a non-zero exit code, but valid Sony-compatible temp clips were found. Finalizing them with FFmbc...")
+            Else
+                AppendLog("Finalizing Sony-compatible stream clips with FFmbc...")
+            End If
 
-            Await AwaitBackgroundFfmbcFinalizationAsync()
-            Dim finalizeError = Await Task.Run(Function() FinalizeRemainingRecordingWithFfmbc(tempOutputFolder, finalOutputFolder))
+            Dim finalizeError = Await FinalizeAllPendingFfmbcFilesAsync(tempOutputFolder, finalOutputFolder)
 
             isFinalizingRecordingValue = False
 

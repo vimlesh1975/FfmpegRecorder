@@ -14,4 +14,14 @@
     <Import Include="System.Windows.Forms" />
   </ItemGroup>
 
+  <Target Name="CreateTimestampedExecutableCopy" AfterTargets="Build" Condition="Exists('$(TargetDir)$(AssemblyName).exe')">
+    <PropertyGroup>
+      <ExecutableSourcePath>$(TargetDir)$(AssemblyName).exe</ExecutableSourcePath>
+      <TimestampedExecutablePath>$(TargetDir)$(AssemblyName)_$([System.DateTime]::Now.ToString('yyyyMMdd_HHmmss')).exe</TimestampedExecutablePath>
+    </PropertyGroup>
+
+    <Copy SourceFiles="$(ExecutableSourcePath)" DestinationFiles="$(TimestampedExecutablePath)" />
+    <Message Importance="High" Text="Created timestamped executable: $(TimestampedExecutablePath)" />
+  </Target>
+
 </Project>
