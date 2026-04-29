@@ -110,7 +110,7 @@ Partial Class RecorderHostForm
         ClientSize = New Size(1480, 1020)
         FormBorderStyle = FormBorderStyle.Sizable
         MaximizeBox = True
-        MinimizeBox = False
+        MinimizeBox = True
         Name = "RecorderHostForm"
         StartPosition = FormStartPosition.CenterScreen
         Text = "4 Channel DeckLink Recorder"
