@@ -22,10 +22,13 @@ Partial Public Class RecorderHostForm
     End Function
 
     Private ReadOnly systemCpuTimer As New Timer() With {.Interval = 1000}
+    Private ReadOnly recordingDriveFreeSpaceTimer As New Timer() With {.Interval = 60000}
     Private ReadOnly recordingDirectoryPanel As New FlowLayoutPanel()
     Private ReadOnly recordingDirectoryLabel As New Label()
     Private ReadOnly recordingDirectoryTextBox As New TextBox()
     Private ReadOnly browseRecordingDirectoryButton As New Button()
+    Private ReadOnly recordingDriveFreeSpaceLabel As New Label()
+    Private isAdjustingCommonHeaderHeight As Boolean
     Private hasSystemCpuSample As Boolean
     Private lastSystemCpuSample As SystemCpuSample
     Private suppressSharedOperatorEvents As Boolean
@@ -43,6 +46,7 @@ Partial Public Class RecorderHostForm
         AddHandler thirdRecorderControl.CpuUsageChanged, AddressOf OnRecorderCpuUsageChanged
         AddHandler fourthRecorderControl.CpuUsageChanged, AddressOf OnRecorderCpuUsageChanged
         AddHandler systemCpuTimer.Tick, AddressOf OnSystemCpuTimerTick
+        AddHandler recordingDriveFreeSpaceTimer.Tick, AddressOf OnRecordingDriveFreeSpaceTimerTick
         AddHandler audioListenComboBox.SelectedIndexChanged, AddressOf OnAudioListenSelectionChanged
         AddHandler profileComboBox.SelectedIndexChanged, AddressOf OnSharedProfileChanged
         AddHandler intervalUpDown.ValueChanged, AddressOf OnSharedIntervalChanged
@@ -55,6 +59,7 @@ Partial Public Class RecorderHostForm
         AddHandler recordingDirectoryTextBox.Leave, AddressOf OnRecordingDirectoryCommitted
         AddHandler recordingDirectoryTextBox.KeyDown, AddressOf OnRecordingDirectoryKeyDown
         AddHandler Load, AddressOf RecorderHostForm_Load
+        AddHandler SizeChanged, AddressOf RecorderHostForm_SizeChanged
 
         profileComboBox.Items.Clear()
         profileComboBox.Items.AddRange(leftRecorderControl.AvailableProfileNames.ToArray())
@@ -67,6 +72,7 @@ Partial Public Class RecorderHostForm
         ReadSystemCpuSample(lastSystemCpuSample)
         hasSystemCpuSample = True
         systemCpuTimer.Start()
+        recordingDriveFreeSpaceTimer.Start()
         ApplyAudioListenSelection()
         UpdateCpuLabels()
     End Sub
@@ -79,8 +85,9 @@ Partial Public Class RecorderHostForm
         commonPanel.ColumnCount = 2
         commonPanel.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 100.0F))
         commonPanel.ColumnStyles.Add(New ColumnStyle(SizeType.AutoSize))
-        commonPanel.RowCount = 1
+        commonPanel.RowCount = 2
         commonPanel.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
+        commonPanel.RowStyles.Add(New RowStyle(SizeType.AutoSize))
 
         Dim leftSectionPanel As New FlowLayoutPanel() With {
             .AutoSize = False,
@@ -97,7 +104,8 @@ Partial Public Class RecorderHostForm
         leftSectionPanel.Controls.Add(BuildCommonSection("Folder", recordingDirectoryPanel))
         leftSectionPanel.Controls.Add(BuildCommonSection("Audio", audioListenPanel))
         leftSectionPanel.Controls.Add(BuildCommonSection("View", darkModeCheckBox))
-        leftSectionPanel.Controls.Add(BuildCommonSection(
+
+        Dim cpuSectionPanel = BuildCommonSection(
             "CPU",
             cam1CpuLabel,
             cam1CpuValueLabel,
@@ -106,7 +114,9 @@ Partial Public Class RecorderHostForm
             cam3CpuLabel,
             cam3CpuValueLabel,
             cam4CpuLabel,
-            cam4CpuValueLabel))
+            cam4CpuValueLabel)
+        cpuSectionPanel.Name = "cameraCpuPanel"
+        cpuSectionPanel.Margin = New Padding(0, 0, 0, 8)
 
         Dim rightSectionPanel As New FlowLayoutPanel() With {
             .AutoSize = True,
@@ -118,11 +128,15 @@ Partial Public Class RecorderHostForm
             .WrapContents = False
         }
         rightSectionPanel.Controls.Add(BuildPcCpuSection())
+        rightSectionPanel.Controls.Add(BuildRecordingDriveSpaceSection())
 
         commonPanel.Controls.Add(leftSectionPanel, 0, 0)
         commonPanel.Controls.Add(rightSectionPanel, 1, 0)
+        commonPanel.Controls.Add(cpuSectionPanel, 0, 1)
+        commonPanel.SetRowSpan(rightSectionPanel, 2)
 
         commonPanel.ResumeLayout(True)
+        UpdateCommonHeaderHeight()
     End Sub
 
     Private Sub InitializeRecordingDirectoryControls()
@@ -208,6 +222,30 @@ Partial Public Class RecorderHostForm
 
         sectionPanel.Controls.Add(totalCpuLabel)
         sectionPanel.Controls.Add(totalCpuValueLabel)
+        Return sectionPanel
+    End Function
+
+    Private Function BuildRecordingDriveSpaceSection() As FlowLayoutPanel
+        Dim sectionPanel As New FlowLayoutPanel() With {
+            .AutoSize = True,
+            .AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            .FlowDirection = FlowDirection.TopDown,
+            .Margin = New Padding(0, 0, 12, 8),
+            .MinimumSize = New Size(340, 0),
+            .Padding = New Padding(18, 0, 18, 12),
+            .WrapContents = False,
+            .Name = "driveFreeSpacePanel"
+        }
+
+        recordingDriveFreeSpaceLabel.AutoSize = False
+        recordingDriveFreeSpaceLabel.Font = New Font("Segoe UI", 9.0F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
+        recordingDriveFreeSpaceLabel.Margin = New Padding(0)
+        recordingDriveFreeSpaceLabel.MinimumSize = New Size(280, 20)
+        recordingDriveFreeSpaceLabel.Size = recordingDriveFreeSpaceLabel.MinimumSize
+        recordingDriveFreeSpaceLabel.Text = "Free: -- MB"
+        recordingDriveFreeSpaceLabel.TextAlign = ContentAlignment.MiddleRight
+
+        sectionPanel.Controls.Add(recordingDriveFreeSpaceLabel)
         Return sectionPanel
     End Function
 
@@ -346,10 +384,19 @@ Partial Public Class RecorderHostForm
 
     Private Sub RecorderHostForm_Load(sender As Object, e As EventArgs)
         SyncSharedOperatorControlsFromRecorder(leftRecorderControl)
+        UpdateCommonHeaderHeight()
+    End Sub
+
+    Private Sub RecorderHostForm_SizeChanged(sender As Object, e As EventArgs)
+        UpdateCommonHeaderHeight()
     End Sub
 
     Private Sub OnSystemCpuTimerTick(sender As Object, e As EventArgs)
         UpdateSystemCpuLabel()
+    End Sub
+
+    Private Sub OnRecordingDriveFreeSpaceTimerTick(sender As Object, e As EventArgs)
+        UpdateRecordingDriveFreeSpaceLabel()
     End Sub
 
     Private Sub OnRecorderCpuUsageChanged(sender As Object, e As RecorderControl.CpuUsageChangedEventArgs)
@@ -507,11 +554,40 @@ Partial Public Class RecorderHostForm
         suppressRecordingDirectoryEvents = True
 
         Try
-            recordingDirectoryTextBox.Text = If(String.IsNullOrWhiteSpace(directoryPath), RecordingDirectorySettings.GetRecordingDirectory(), directoryPath)
+            Dim selectedDirectoryPath = If(String.IsNullOrWhiteSpace(directoryPath), RecordingDirectorySettings.GetRecordingDirectory(), directoryPath)
+            recordingDirectoryTextBox.Text = selectedDirectoryPath
+            UpdateRecordingDriveFreeSpaceLabel(selectedDirectoryPath)
         Finally
             suppressRecordingDirectoryEvents = False
         End Try
     End Sub
+
+    Private Sub UpdateRecordingDriveFreeSpaceLabel(Optional directoryPath As String = Nothing)
+        Dim selectedDirectoryPath = If(String.IsNullOrWhiteSpace(directoryPath), recordingDirectoryTextBox.Text, directoryPath)
+        recordingDriveFreeSpaceLabel.Text = GetRecordingDriveFreeSpaceText(selectedDirectoryPath)
+    End Sub
+
+    Private Function GetRecordingDriveFreeSpaceText(directoryPath As String) As String
+        Try
+            Dim normalizedPath = RecordingDirectorySettings.NormalizeRecordingDirectory(directoryPath)
+            Dim driveRoot = Path.GetPathRoot(normalizedPath)
+
+            If String.IsNullOrWhiteSpace(driveRoot) Then
+                Return "Free: unavailable"
+            End If
+
+            Dim drive = New DriveInfo(driveRoot)
+
+            If Not drive.IsReady Then
+                Return $"Free: unavailable on {drive.Name.TrimEnd("\"c)}"
+            End If
+
+            Dim freeSpaceInMb = CLng(Math.Floor(drive.AvailableFreeSpace / (1024.0R * 1024.0R)))
+            Return $"Free: {freeSpaceInMb:N0} MB on {drive.Name.TrimEnd("\"c)}"
+        Catch
+            Return "Free: unavailable"
+        End Try
+    End Function
 
     Private Sub ApplyAudioListenSelection()
         Dim selectedCameraName = If(TryCast(audioListenComboBox.SelectedItem, String), "Off")
@@ -569,6 +645,63 @@ Partial Public Class RecorderHostForm
     Private Function FindPcCpuPanel() As FlowLayoutPanel
         Return FindNamedFlowLayoutPanel(commonPanel, "pcCpuPanel")
     End Function
+
+    Private Sub UpdateCommonHeaderHeight()
+        If isAdjustingCommonHeaderHeight OrElse commonPanel Is Nothing OrElse commonGroupBox Is Nothing Then
+            Return
+        End If
+
+        Dim leftSectionPanel = FindNamedFlowLayoutPanel(commonPanel, "commonLeftPanel")
+        Dim rightSectionPanel = FindNamedFlowLayoutPanel(commonPanel, "commonRightPanel")
+        Dim cameraCpuPanel = FindNamedFlowLayoutPanel(commonPanel, "cameraCpuPanel")
+
+        If leftSectionPanel Is Nothing OrElse rightSectionPanel Is Nothing OrElse cameraCpuPanel Is Nothing OrElse commonPanel.RowStyles.Count < 2 Then
+            Return
+        End If
+
+        isAdjustingCommonHeaderHeight = True
+
+        Try
+            Dim totalContentWidth = Math.Max(0, commonPanel.ClientSize.Width - commonPanel.Padding.Horizontal)
+            Dim rightPreferredWidth = rightSectionPanel.GetPreferredSize(Size.Empty).Width + rightSectionPanel.Margin.Horizontal
+            Dim leftAvailableWidth = Math.Max(240, totalContentWidth - rightPreferredWidth)
+
+            Dim leftPreferredHeight = leftSectionPanel.GetPreferredSize(New Size(leftAvailableWidth, 0)).Height + leftSectionPanel.Margin.Vertical
+            Dim rightPreferredHeight = rightSectionPanel.GetPreferredSize(Size.Empty).Height + rightSectionPanel.Margin.Vertical
+            Dim cpuPreferredHeight = cameraCpuPanel.GetPreferredSize(New Size(leftAvailableWidth, 0)).Height + cameraCpuPanel.Margin.Vertical
+
+            Dim row0Height = leftPreferredHeight
+            Dim row1Height = cpuPreferredHeight
+            Dim combinedLeftHeight = row0Height + row1Height
+
+            If rightPreferredHeight > combinedLeftHeight Then
+                row1Height += (rightPreferredHeight - combinedLeftHeight)
+            End If
+
+            commonPanel.RowStyles(0).SizeType = SizeType.Absolute
+            commonPanel.RowStyles(0).Height = row0Height
+            commonPanel.RowStyles(1).SizeType = SizeType.Absolute
+            commonPanel.RowStyles(1).Height = row1Height
+
+            Dim desiredPanelHeight = commonPanel.Padding.Vertical + row0Height + row1Height
+
+            desiredPanelHeight = Math.Max(desiredPanelHeight, 96)
+
+            commonPanel.PerformLayout()
+
+            Dim desiredGroupHeight = commonPanel.Top + desiredPanelHeight + commonGroupBox.Padding.Bottom
+
+            If commonPanel.Height <> desiredPanelHeight Then
+                commonPanel.Height = desiredPanelHeight
+            End If
+
+            If commonGroupBox.Height <> desiredGroupHeight Then
+                commonGroupBox.Height = desiredGroupHeight
+            End If
+        Finally
+            isAdjustingCommonHeaderHeight = False
+        End Try
+    End Sub
 
     Private Function FindNamedFlowLayoutPanel(parent As Control, panelName As String) As FlowLayoutPanel
         For Each childControl As Control In parent.Controls
@@ -635,6 +768,8 @@ Partial Public Class RecorderHostForm
 
     Private Sub RecorderHostForm_FormClosed(sender As Object, e As FormClosedEventArgs) Handles Me.FormClosed
         systemCpuTimer.Stop()
+        recordingDriveFreeSpaceTimer.Stop()
         systemCpuTimer.Dispose()
+        recordingDriveFreeSpaceTimer.Dispose()
     End Sub
 End Class
