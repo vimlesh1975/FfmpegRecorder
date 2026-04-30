@@ -132,7 +132,7 @@ Public Class StreamRecorderControl
 
     Private ReadOnly Property OutputFolderPath As String
         Get
-            Return RecordingDirectorySettings.GetRecordingDirectory()
+            Return RecordingDirectorySettings.GetRecorderRecordingDirectory("STREAM")
         End Get
     End Property
 

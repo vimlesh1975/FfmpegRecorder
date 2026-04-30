@@ -474,7 +474,7 @@ Partial Public Class RecorderHostForm
             Return
         End If
 
-        Dim filePaths = Directory.GetFiles(outputFolderPath)
+        Dim filePaths = Directory.GetFiles(outputFolderPath, "*", SearchOption.AllDirectories)
 
         If filePaths.Length = 0 Then
             MessageBox.Show(Me, "There are no recordings to delete.", "Delete All", MessageBoxButtons.OK, MessageBoxIcon.Information)
@@ -483,7 +483,7 @@ Partial Public Class RecorderHostForm
 
         Dim confirmation = MessageBox.Show(
             Me,
-            $"Delete all files in {outputFolderPath}?",
+            $"Delete all recording files under {outputFolderPath}?",
             "Delete All Recordings",
             MessageBoxButtons.YesNo,
             MessageBoxIcon.Warning,
@@ -504,6 +504,16 @@ Partial Public Class RecorderHostForm
                     For Each filePath In filePaths
                         File.Delete(filePath)
                         count += 1
+                    Next
+
+                    Dim subdirectoryPaths = Directory.GetDirectories(outputFolderPath, "*", SearchOption.AllDirectories).
+                        OrderByDescending(Function(directoryPath) directoryPath.Length).
+                        ToArray()
+
+                    For Each subdirectoryPath In subdirectoryPaths
+                        If Directory.Exists(subdirectoryPath) AndAlso Directory.GetFileSystemEntries(subdirectoryPath).Length = 0 Then
+                            Directory.Delete(subdirectoryPath, recursive:=False)
+                        End If
                     Next
 
                     Return count

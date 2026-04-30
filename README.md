@@ -58,10 +58,10 @@ ffmbc*.exe
 For this profile, recordings are first written into:
 
 ```text
-<RecordingDirectory>\.ffmbc-temp\<CameraOrStream>\<timestamp>
+<RecordingDirectory>\<CameraOrStream>\.ffmbc-temp\<CameraOrStream>\<timestamp>
 ```
 
-Completed clips are finalized with FFmbc in the background and moved into the selected recording directory. Do not delete the `.ffmbc-temp` folder while finalization is still running.
+Completed clips are finalized with FFmbc in the background and moved into the recorder's dedicated subfolder. Do not delete the `.ffmbc-temp` folder while finalization is still running.
 
 ## Stream Recorder
 
@@ -104,6 +104,16 @@ C:\Users\<YourUser>\Videos\FFmpegRecorder
 ```
 
 Use the `Recording Dir` field or `Browse...` button in the `COMMON` area to choose another folder. The setting is stored under the current Windows user profile and restored next time.
+
+Each recorder writes into its own dedicated subfolder inside the selected root folder:
+
+```text
+<RecordingDirectory>\CAM1
+<RecordingDirectory>\CAM2
+<RecordingDirectory>\CAM3
+<RecordingDirectory>\CAM4
+<RecordingDirectory>\STREAM
+```
 
 ## Requirements
 
@@ -187,7 +197,7 @@ Before recording, confirm the required FFmpeg tools are in the same folder as th
 7. Use `Stop All` or individual `Stop` buttons.
 8. Use `Open Recordings` to open the output folder.
 
-`Delete All` deletes files in the selected recording directory only after all camera and stream recordings are stopped.
+`Delete All` deletes recording files from all recorder subfolders under the selected recording directory only after all camera and stream recordings are stopped.
 
 ## Settings
 

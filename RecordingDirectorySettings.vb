@@ -31,6 +31,12 @@ Public NotInheritable Class RecordingDirectorySettings
         Return DefaultRecordingDirectory
     End Function
 
+    Public Shared Function GetRecorderRecordingDirectory(recorderName As String) As String
+        Dim rootDirectory = GetRecordingDirectory()
+        Dim folderName = SanitizeDirectoryToken(recorderName, "Recorder")
+        Return Path.Combine(rootDirectory, folderName)
+    End Function
+
     Public Shared Function SaveRecordingDirectory(directoryPath As String) As String
         Dim normalizedPath = NormalizeRecordingDirectory(directoryPath)
         Directory.CreateDirectory(normalizedPath)
@@ -47,5 +53,15 @@ Public NotInheritable Class RecordingDirectorySettings
         End If
 
         Return Path.GetFullPath(candidatePath)
+    End Function
+
+    Public Shared Function SanitizeDirectoryToken(value As String, fallbackValue As String) As String
+        Dim safeValue = If(String.IsNullOrWhiteSpace(value), fallbackValue, value.Trim())
+
+        For Each invalidCharacter In Path.GetInvalidFileNameChars()
+            safeValue = safeValue.Replace(invalidCharacter, "_"c)
+        Next
+
+        Return If(String.IsNullOrWhiteSpace(safeValue), fallbackValue, safeValue)
     End Function
 End Class

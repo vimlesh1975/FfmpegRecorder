@@ -239,7 +239,7 @@ Partial Public Class RecorderControl
     <Browsable(False), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)>
     Public ReadOnly Property OutputFolderPath As String
         Get
-            Return RecordingDirectorySettings.GetRecordingDirectory()
+            Return RecordingDirectorySettings.GetRecorderRecordingDirectory(GetRecordingPrefix())
         End Get
     End Property
 
@@ -710,7 +710,7 @@ Partial Public Class RecorderControl
             .FormatCode = "Hi50",
             .AudioInput = "embedded",
             .Channels = 2,
-            .OutputFolder = RecordingDirectorySettings.GetRecordingDirectory(),
+            .OutputFolder = OutputFolderPath,
             .FilePrefix = GetRecordingPrefix(),
             .ClipDurationSeconds = GetSelectedClipDurationSeconds(),
             .ContainerExtension = selectedProfile.ContainerExtension,
