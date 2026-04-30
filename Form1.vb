@@ -71,6 +71,7 @@ Partial Public Class RecorderControl
     Private Const DeckLinkInputModePal As String = "PAL"
     Private Const PalAspect4By3 As String = "4:3"
     Private Const PalAspect16By9 As String = "16:9"
+    Private Const NoDeckLinkSourceName As String = "(None)"
 
     Private Const PreviewWidth As Integer = 360
     Private Const PreviewHeight As Integer = 202
@@ -841,7 +842,7 @@ Partial Public Class RecorderControl
 
         Return New RecorderOptions With {
             .FfmpegPath = ResolveFfmpegPath(),
-            .DeviceName = GetSelectedDeviceName(),
+            .DeviceName = GetSelectedDeckLinkDeviceName(),
             .FormatCode = GetSelectedDeckLinkFormatCode(),
             .AudioInput = "embedded",
             .Channels = 2,
@@ -877,6 +878,16 @@ Partial Public Class RecorderControl
             Case Else
                 Return "Hi50"
         End Select
+    End Function
+
+    Private Function GetSelectedDeckLinkDeviceName() As String
+        Dim selectedDeviceName = GetSelectedDeviceName()
+
+        If String.Equals(selectedDeviceName, NoDeckLinkSourceName, StringComparison.OrdinalIgnoreCase) Then
+            Return Nothing
+        End If
+
+        Return selectedDeviceName
     End Function
 
     Private Function GetSelectedInputSummaryText() As String
@@ -1098,19 +1109,25 @@ Partial Public Class RecorderControl
     Private Sub InitializeDeckLinkSelector()
         suppressDeviceSelectionChanged = True
         deviceComboBox.Items.Clear()
-        deviceComboBox.Items.Add(savedDeviceName)
-        deviceComboBox.SelectedIndex = 0
+        deviceComboBox.Items.Add(NoDeckLinkSourceName)
+
+        If Not String.IsNullOrWhiteSpace(savedDeviceName) AndAlso deviceComboBox.Items.IndexOf(savedDeviceName) < 0 Then
+            deviceComboBox.Items.Add(savedDeviceName)
+        End If
+
+        Dim targetDeviceName = If(String.IsNullOrWhiteSpace(savedDeviceName), NoDeckLinkSourceName, savedDeviceName)
+        deviceComboBox.SelectedItem = targetDeviceName
+
+        If deviceComboBox.SelectedIndex < 0 Then
+            deviceComboBox.SelectedItem = NoDeckLinkSourceName
+        End If
+
         suppressDeviceSelectionChanged = False
     End Sub
 
     Private Function LoadDeckLinkDevices() As Boolean
         Dim ffmpegPath = ResolveFfmpegPath()
         Dim deviceNames = GetDeckLinkDeviceNames(ffmpegPath)
-
-        If deviceNames.Count = 0 Then
-            Return False
-        End If
-
         Dim preferredDeviceName = GetPreferredDefaultDeviceName()
         Dim selectedDeviceName = savedDeviceName
 
@@ -1119,6 +1136,7 @@ Partial Public Class RecorderControl
 
         Try
             deviceComboBox.Items.Clear()
+            deviceComboBox.Items.Add(NoDeckLinkSourceName)
 
             For Each deviceName In deviceNames
                 deviceComboBox.Items.Add(deviceName)
@@ -1127,7 +1145,7 @@ Partial Public Class RecorderControl
             Dim targetDeviceName = selectedDeviceName
 
             If String.IsNullOrWhiteSpace(targetDeviceName) OrElse deviceComboBox.Items.IndexOf(targetDeviceName) < 0 Then
-                targetDeviceName = If(deviceComboBox.Items.IndexOf(preferredDeviceName) >= 0, preferredDeviceName, deviceComboBox.Items(0).ToString())
+                targetDeviceName = If(deviceComboBox.Items.IndexOf(preferredDeviceName) >= 0, preferredDeviceName, NoDeckLinkSourceName)
             End If
 
             deviceComboBox.SelectedItem = targetDeviceName
@@ -1137,24 +1155,47 @@ Partial Public Class RecorderControl
         End Try
 
         UpdateStaticInfo()
-        Return True
+        Return deviceNames.Count > 0
     End Function
 
-    Private Function EnsureExclusiveDeviceSelection(Optional saveIfSelectionChanged As Boolean = False) As Boolean
-        Dim selectedDeviceName = GetSelectedDeviceName()
+    Private Function EnsureExclusiveDeviceSelection(Optional saveIfSelectionChanged As Boolean = False, Optional allowSwap As Boolean = False, Optional keepCurrentReservationOnFailure As Boolean = False) As Boolean
+        Dim selectedDeviceName = GetSelectedDeckLinkDeviceName()
+
+        If String.IsNullOrWhiteSpace(selectedDeviceName) Then
+            ReleaseReservedDevice()
+            SetDeckLinkAvailability(False, "Source set to None")
+            Return False
+        End If
 
         If TryReserveSelectedDevice(selectedDeviceName) Then
-            savedDeviceName = selectedDeviceName
+            savedDeviceName = GetSelectedDeviceName()
             SetDeckLinkAvailability(True)
             Return True
+        End If
+
+        If allowSwap Then
+            Dim swapHandled = False
+
+            If TrySwapReservedDeviceSelection(selectedDeviceName, swapHandled) Then
+                SetDeckLinkAvailability(True)
+                Return True
+            End If
+
+            If swapHandled Then
+                Return False
+            End If
         End If
 
         Dim replacementDeviceName = FindAvailableDeviceName(selectedDeviceName)
 
         If String.IsNullOrWhiteSpace(replacementDeviceName) Then
-            ReleaseReservedDevice()
-            SetDeckLinkAvailability(False, "No free DeckLink input available")
             AppendLog($"No free DeckLink input is available for {GetRecordingPrefix()}.")
+
+            If Not keepCurrentReservationOnFailure Then
+                ReleaseReservedDevice()
+                SetDeckLinkAvailability(False, "No free DeckLink input available")
+            End If
+
             Return False
         End If
 
@@ -1260,6 +1301,115 @@ Partial Public Class RecorderControl
             Return True
         End SyncLock
     End Function
+
+    Private Shared Function GetReservedDeviceOwner(deviceName As String) As RecorderControl
+        If String.IsNullOrWhiteSpace(deviceName) Then
+            Return Nothing
+        End If
+
+        SyncLock deviceReservationSync
+            CleanupReservedDevices()
+
+            Dim existingReservation As WeakReference(Of RecorderControl) = Nothing
+
+            If reservedDevices.TryGetValue(deviceName, existingReservation) Then
+                Dim owner As RecorderControl = Nothing
+
+                If existingReservation.TryGetTarget(owner) Then
+                    Return owner
+                End If
+            End If
+
+            Return Nothing
+        End SyncLock
+    End Function
+
+    Private Function TrySwapReservedDeviceSelection(selectedDeviceName As String, ByRef swapHandled As Boolean) As Boolean
+        Dim owner = GetReservedDeviceOwner(selectedDeviceName)
+
+        If owner Is Nothing OrElse Object.ReferenceEquals(owner, Me) Then
+            swapHandled = False
+            Return False
+        End If
+
+        swapHandled = True
+
+        If owner.captureRunner IsNot Nothing Then
+            AppendLog($"Cannot swap to {selectedDeviceName} because {owner.GetRecordingPrefix()} is recording.")
+            Return False
+        End If
+
+        Dim previousDeviceName = reservedDeviceName
+        Dim ownerReplacementDeviceName = If(String.IsNullOrWhiteSpace(previousDeviceName), NoDeckLinkSourceName, previousDeviceName)
+
+        SyncLock deviceReservationSync
+            CleanupReservedDevices()
+
+            ReleaseReservedDeviceInternal()
+            owner.ReleaseReservedDeviceInternal()
+
+            If Not String.IsNullOrWhiteSpace(previousDeviceName) Then
+                reservedDevices(previousDeviceName) = New WeakReference(Of RecorderControl)(owner)
+                owner.reservedDeviceName = previousDeviceName
+            Else
+                owner.reservedDeviceName = Nothing
+            End If
+
+            reservedDevices(selectedDeviceName) = New WeakReference(Of RecorderControl)(Me)
+            reservedDeviceName = selectedDeviceName
+        End SyncLock
+
+        owner.ApplyDeviceSelectionAfterSwap(ownerReplacementDeviceName, GetRecordingPrefix())
+        AppendLog($"Swapped sources with {owner.GetRecordingPrefix()}: now using {selectedDeviceName}.")
+        Return True
+    End Function
+
+    Private Sub ApplyDeviceSelectionAfterSwap(newDeviceName As String, requestedByPrefix As String)
+        If InvokeRequired Then
+            BeginInvoke(New Action(Of String, String)(AddressOf ApplyDeviceSelectionAfterSwap), newDeviceName, requestedByPrefix)
+            Return
+        End If
+
+        Dim targetDeviceName = If(String.IsNullOrWhiteSpace(newDeviceName), NoDeckLinkSourceName, newDeviceName)
+
+        suppressDeviceSelectionChanged = True
+
+        Try
+            If deviceComboBox.Items.IndexOf(NoDeckLinkSourceName) < 0 Then
+                deviceComboBox.Items.Insert(0, NoDeckLinkSourceName)
+            End If
+
+            If Not String.Equals(targetDeviceName, NoDeckLinkSourceName, StringComparison.OrdinalIgnoreCase) AndAlso deviceComboBox.Items.IndexOf(targetDeviceName) < 0 Then
+                deviceComboBox.Items.Add(targetDeviceName)
+            End If
+
+            deviceComboBox.SelectedItem = targetDeviceName
+        Finally
+            suppressDeviceSelectionChanged = False
+        End Try
+
+        savedDeviceName = targetDeviceName
+        TearDownAudioMonitor(fast:=True)
+
+        If captureRunner Is Nothing Then
+            If String.Equals(targetDeviceName, NoDeckLinkSourceName, StringComparison.OrdinalIgnoreCase) Then
+                StopIdlePreview("Source set to None.", fast:=True)
+            Else
+                StopIdlePreview("Switching device...", fast:=True)
+                StartIdlePreview()
+            End If
+        End If
+
+        SetDeckLinkAvailability(Not String.Equals(targetDeviceName, NoDeckLinkSourceName, StringComparison.OrdinalIgnoreCase), If(String.Equals(targetDeviceName, NoDeckLinkSourceName, StringComparison.OrdinalIgnoreCase), "Source set to None", "Ready"))
+        UpdateStaticInfo()
+        SaveOperatorSettings()
+
+        If String.Equals(targetDeviceName, NoDeckLinkSourceName, StringComparison.OrdinalIgnoreCase) Then
+            AppendLog($"Source released after {requestedByPrefix} requested a swap.")
+        Else
+            AppendLog($"Source changed to {targetDeviceName} after {requestedByPrefix} requested a swap.")
+        End If
+    End Sub
 
     Private Shared Sub CleanupReservedDevices()
         Dim deviceNamesToRemove As New List(Of String)()
@@ -1367,7 +1517,7 @@ Partial Public Class RecorderControl
             Return selectedDevice
         End If
 
-        Return If(String.IsNullOrWhiteSpace(savedDeviceName), GetPreferredDefaultDeviceName(), savedDeviceName)
+        Return If(String.IsNullOrWhiteSpace(savedDeviceName), NoDeckLinkSourceName, savedDeviceName)
     End Function
 
     Private Function GetSelectedClipDurationSeconds() As Integer
@@ -1380,7 +1530,7 @@ Partial Public Class RecorderControl
 
     Private Sub UpdatePalAspectUiState()
         Dim shouldEnablePalAspect = Not String.Equals(GetSelectedInputModeName(), DeckLinkInputModeHd50, StringComparison.OrdinalIgnoreCase)
-        palAspectComboBox.Enabled = shouldEnablePalAspect AndAlso captureRunner Is Nothing AndAlso deckLinkInputAvailableValue
+        palAspectComboBox.Enabled = shouldEnablePalAspect AndAlso captureRunner Is Nothing
     End Sub
 
     Private Sub RefreshIdlePreviewForInputSettingChange(statusMessage As String)
@@ -1427,9 +1577,26 @@ Partial Public Class RecorderControl
             Return
         End If
 
-        If Not EnsureExclusiveDeviceSelection(saveIfSelectionChanged:=True) Then
-            TearDownAudioMonitor(fast:=True)
-            StopIdlePreview("No DeckLink input available.", fast:=True)
+        Dim previousDeviceName = If(String.IsNullOrWhiteSpace(reservedDeviceName), NoDeckLinkSourceName, reservedDeviceName)
+
+        If Not EnsureExclusiveDeviceSelection(saveIfSelectionChanged:=True, allowSwap:=True, keepCurrentReservationOnFailure:=True) Then
+            If String.IsNullOrWhiteSpace(GetSelectedDeckLinkDeviceName()) Then
+                TearDownAudioMonitor(fast:=True)
+                savedDeviceName = GetSelectedDeviceName()
+                SaveOperatorSettings()
+                StopIdlePreview("Source set to None.", fast:=True)
+                UpdateStaticInfo()
+                Return
+            End If
+
+            suppressDeviceSelectionChanged = True
+
+            Try
+                deviceComboBox.SelectedItem = previousDeviceName
+            Finally
+                suppressDeviceSelectionChanged = False
+            End Try
+
             UpdateStaticInfo()
             Return
         End If
@@ -2275,11 +2442,11 @@ Partial Public Class RecorderControl
         Dim isBusy = isRecording
         recordButton.Enabled = deckLinkInputAvailableValue AndAlso Not isBusy
         stopButton.Enabled = isRecording AndAlso Not isStoppingCaptureValue
-        intervalUpDown.Enabled = deckLinkInputAvailableValue AndAlso Not isBusy
-        profileComboBox.Enabled = deckLinkInputAvailableValue AndAlso Not isBusy
-        inputModeComboBox.Enabled = deckLinkInputAvailableValue AndAlso Not isBusy
-        deviceComboBox.Enabled = deckLinkInputAvailableValue AndAlso Not isBusy
-        includeInRecordAllCheckBox.Enabled = deckLinkInputAvailableValue AndAlso Not isBusy
+        intervalUpDown.Enabled = Not isBusy
+        profileComboBox.Enabled = Not isBusy
+        inputModeComboBox.Enabled = Not isBusy
+        deviceComboBox.Enabled = Not isBusy
+        includeInRecordAllCheckBox.Enabled = Not isBusy
         UpdatePalAspectUiState()
     End Sub
 

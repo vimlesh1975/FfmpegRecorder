@@ -30,6 +30,7 @@ The app prefers these DeckLink inputs by default:
 | `CAM4` | `DeckLink Duo (3)` |
 
 The app reserves DeckLink inputs while panels are active so two camera panels do not silently use the same device.
+If you pick a DeckLink input that is already assigned to another idle camera panel, the app now swaps the two panels automatically. Each camera panel also offers a `None` source option when you want to temporarily unassign a panel on purpose.
 
 ## Recording Profiles
 
