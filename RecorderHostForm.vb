@@ -3,6 +3,7 @@ Imports System.Drawing
 Imports System.Globalization
 Imports System.IO
 Imports System.Runtime.InteropServices
+Imports System.Threading.Tasks
 
 Partial Public Class RecorderHostForm
     <StructLayout(LayoutKind.Sequential)>
@@ -460,7 +461,7 @@ Partial Public Class RecorderHostForm
         Process.Start(New ProcessStartInfo(outputFolderPath) With {.UseShellExecute = True})
     End Sub
 
-    Private Sub OnDeleteAllClicked(sender As Object, e As EventArgs)
+    Private Async Sub OnDeleteAllClicked(sender As Object, e As EventArgs)
         Dim outputFolderPath = RecordingDirectorySettings.GetRecordingDirectory()
 
         If GetRecorderControls().Any(Function(recorderControl) recorderControl.IsRecording) OrElse streamRecorderControl.IsRecording Then
@@ -492,14 +493,35 @@ Partial Public Class RecorderHostForm
             Return
         End If
 
-        Dim deletedCount = 0
+        deleteAllButton.Enabled = False
+        UseWaitCursor = True
 
-        For Each filePath In filePaths
-            File.Delete(filePath)
-            deletedCount += 1
-        Next
+        Try
+            Dim deletedCount = Await Task.Run(
+                Function()
+                    Dim count = 0
 
-        MessageBox.Show(Me, $"Deleted {deletedCount} recording file(s).", "Delete All", MessageBoxButtons.OK, MessageBoxIcon.Information)
+                    For Each filePath In filePaths
+                        File.Delete(filePath)
+                        count += 1
+                    Next
+
+                    Return count
+                End Function)
+
+            If IsDisposed Then
+                Return
+            End If
+
+            MessageBox.Show(Me, $"Deleted {deletedCount} recording file(s).", "Delete All", MessageBoxButtons.OK, MessageBoxIcon.Information)
+        Catch ex As Exception
+            If Not IsDisposed Then
+                MessageBox.Show(Me, $"Unable to delete all recordings.{Environment.NewLine}{ex.Message}", "Delete All", MessageBoxButtons.OK, MessageBoxIcon.Error)
+            End If
+        Finally
+            UseWaitCursor = False
+            deleteAllButton.Enabled = True
+        End Try
     End Sub
 
     Private Sub OnDarkModeChanged(sender As Object, e As EventArgs)

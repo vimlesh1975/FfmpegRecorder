@@ -158,6 +158,7 @@ Partial Public Class RecorderControl
     Private deckLinkInputAvailableValue As Boolean = True
     Private deckLinkUnavailableReason As String = "No free DeckLink input available"
     Private isFinalizingRecordingValue As Boolean
+    Private isStoppingCaptureValue As Boolean
     Private currentRecordingUsesFfmbcFinalize As Boolean
     Private currentRecordingTempOutputFolder As String
     Private currentRecordingFinalOutputFolder As String
@@ -1972,23 +1973,35 @@ Partial Public Class RecorderControl
         End Try
     End Sub
 
-    Private Sub StopRecording(sender As Object, e As EventArgs)
-        If captureRunner Is Nothing Then
+    Private Async Sub StopRecording(sender As Object, e As EventArgs)
+        If captureRunner Is Nothing OrElse isStoppingCaptureValue Then
             Return
         End If
 
+        Dim runner = captureRunner
+        isStoppingCaptureValue = True
         stopButton.Enabled = False
         statusValueLabel.Text = "Stopping"
         statusValueLabel.ForeColor = Color.DarkOrange
         UpdateRecorderStatusAccent()
         AppendLog("Stopping recording...")
-        captureRunner.Stop()
+        UpdateUiState(True)
+
+        Try
+            Await Task.Run(Sub() runner.Stop())
+        Catch ex As Exception
+            AppendLog($"Stop request failed: {ex.Message}")
+        Finally
+            isStoppingCaptureValue = False
+            UpdateUiState(captureRunner IsNot Nothing)
+            UpdateRecorderStatusAccent()
+        End Try
     End Sub
 
     Private Sub UpdateUiState(isRecording As Boolean)
         Dim isBusy = isRecording
         recordButton.Enabled = deckLinkInputAvailableValue AndAlso Not isBusy
-        stopButton.Enabled = isRecording
+        stopButton.Enabled = isRecording AndAlso Not isStoppingCaptureValue
         intervalUpDown.Enabled = deckLinkInputAvailableValue AndAlso Not isBusy
         profileComboBox.Enabled = deckLinkInputAvailableValue AndAlso Not isBusy
         deviceComboBox.Enabled = deckLinkInputAvailableValue AndAlso Not isBusy

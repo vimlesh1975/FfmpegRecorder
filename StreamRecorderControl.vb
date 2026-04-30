@@ -1,5 +1,6 @@
 Imports System.ComponentModel
 Imports System.Diagnostics
+Imports System.Globalization
 Imports System.IO
 Imports System.Text
 Imports System.Threading.Tasks
@@ -72,6 +73,10 @@ Public Class StreamRecorderControl
     Private darkModeEnabledValue As Boolean
     Private suppressSettingsSave As Boolean
     Private isFinalizingRecordingValue As Boolean
+    Private isStartingRecordingValue As Boolean
+    Private isStoppingRecordingValue As Boolean
+    Private isStartingPreviewValue As Boolean
+    Private isStoppingPreviewValue As Boolean
     Private currentRecordingUsesDirectFfmbcValue As Boolean
     Private currentRecordingUsesFfmbcFallbackValue As Boolean
     Private continueDirectFfmbcRecordingValue As Boolean
@@ -369,28 +374,42 @@ Public Class StreamRecorderControl
         Next
     End Sub
 
-    Private Sub StartRecording(sender As Object, e As EventArgs)
-        If streamRunner IsNot Nothing Then
+    Private Async Sub StartRecording(sender As Object, e As EventArgs)
+        If streamRunner IsNot Nothing OrElse isStartingRecordingValue OrElse isStoppingRecordingValue OrElse isStartingPreviewValue OrElse isStoppingPreviewValue Then
             Return
         End If
 
         Dim sourceValue = urlTextBox.Text.Trim()
+        Dim selectedProfile = GetSelectedProfile()
+        Dim silenceDurationSeconds = Math.Max(1, Decimal.ToInt32(intervalUpDown.Value) + 1)
 
         If String.IsNullOrWhiteSpace(sourceValue) Then
             AppendLog("Enter a URL or file path before recording.")
             Return
         End If
 
+        isStartingRecordingValue = True
+        statusValueLabel.Text = "Starting"
+        statusValueLabel.ForeColor = Color.DarkOrange
+        UpdateUiState(False)
+        UpdateStatusAccent()
         Directory.CreateDirectory(OutputFolderPath)
         logTextBox.Clear()
 
         Try
-            Dim inputUrls = ResolveInputUrls(sourceValue)
-            Dim selectedProfile = GetSelectedProfile()
+            Dim inputUrls = Await Task.Run(Function() ResolveInputUrls(sourceValue))
+
+            If IsDisposed Then
+                Return
+            End If
+
+            AppendLog("Stream recording reads the source as fast as it is available. On-demand media can finish faster than real time and stop automatically at end of input; live sources stay near live speed.")
+
             If selectedProfile.UseFfmbcFinalize Then
                 Dim ffmbcPath = ResolveFfmbcPath()
                 Dim ffprobePath = ResolveFfprobePath()
                 Dim ffmpegPath = Path.Combine(AppContext.BaseDirectory, "ffmpeg.exe")
+                Dim canUseDirectFfmbcMode = CanUseDirectFfmbcInput(inputUrls)
 
                 If String.IsNullOrWhiteSpace(ffmbcPath) OrElse Not File.Exists(ffmbcPath) Then
                     AppendLog($"ffmbc.exe was not found in {AppContext.BaseDirectory}. Copy the local FFmbc build there before using XDCAM Sony Compatible.")
@@ -402,14 +421,30 @@ Public Class StreamRecorderControl
                     Return
                 End If
 
-                If CanUseDirectFfmbcInput(inputUrls) Then
+                Dim useDirectFfmbcMode = canUseDirectFfmbcMode AndAlso Await Task.Run(Function() ShouldUseDirectFfmbcSegmentMode(inputUrls, ffprobePath))
+
+                If IsDisposed Then
+                    Return
+                End If
+
+                If useDirectFfmbcMode Then
                     currentRecordingUsesDirectFfmbcValue = True
                     currentRecordingUsesFfmbcFallbackValue = False
                     continueDirectFfmbcRecordingValue = True
                     currentDirectFfmbcInputUrls = inputUrls.ToArray()
                     currentDirectFfmbcProfile = selectedProfile
-                    currentDirectFfmbcAudioSource = ProbePrimaryAudioSource(currentDirectFfmbcInputUrls, ffprobePath)
-                    currentDirectFfmbcSilenceFilePath = EnsureSilenceWavFile(Math.Max(1, Decimal.ToInt32(intervalUpDown.Value) + 1))
+                    currentDirectFfmbcAudioSource = Await Task.Run(Function() ProbePrimaryAudioSource(currentDirectFfmbcInputUrls, ffprobePath))
+
+                    If IsDisposed Then
+                        Return
+                    End If
+
+                    currentDirectFfmbcSilenceFilePath = Await Task.Run(Function() EnsureSilenceWavFile(silenceDurationSeconds))
+
+                    If IsDisposed Then
+                        Return
+                    End If
+
                     currentRecordingTempOutputFolder = Nothing
                     currentRecordingFinalOutputFolder = Nothing
                     AppendLog("XDCAM Sony Compatible is using direct FFmbc segment recording.")
@@ -422,6 +457,10 @@ Public Class StreamRecorderControl
                         Return
                     End If
 
+                    If canUseDirectFfmbcMode Then
+                        AppendLog("Source appears to be on-demand media. Using FFmpeg ingest so recording stops automatically when the input finishes.")
+                    End If
+
                     currentRecordingUsesDirectFfmbcValue = False
                     currentRecordingUsesFfmbcFallbackValue = True
                     continueDirectFfmbcRecordingValue = False
@@ -432,8 +471,18 @@ Public Class StreamRecorderControl
                     currentRecordingFinalOutputFolder = OutputFolderPath
                     currentRecordingTempOutputFolder = CreateFfmbcTempOutputFolder(OutputFolderPath)
                     Dim tempOutputPattern = Path.Combine(currentRecordingTempOutputFolder, $"Stream_%d%m%Y_%H%M%S{selectedProfile.ContainerExtension}")
-                    Dim fallbackAudioSource = ProbePrimaryAudioSource(inputUrls, ffprobePath)
-                    Dim fallbackSilenceFilePath = EnsureSilenceWavFile(Math.Max(1, Decimal.ToInt32(intervalUpDown.Value) + 1))
+                    Dim fallbackAudioSource = Await Task.Run(Function() ProbePrimaryAudioSource(inputUrls, ffprobePath))
+
+                    If IsDisposed Then
+                        Return
+                    End If
+
+                    Dim fallbackSilenceFilePath = Await Task.Run(Function() EnsureSilenceWavFile(silenceDurationSeconds))
+
+                    If IsDisposed Then
+                        Return
+                    End If
+
                     Dim arguments = BuildSonyCompatibleTempRecordingArguments(inputUrls, tempOutputPattern, selectedProfile, fallbackAudioSource, fallbackSilenceFilePath)
                     AppendLog("XDCAM Sony Compatible is using FFmpeg ingest with FFmbc finalization for this source.")
 
@@ -475,8 +524,6 @@ Public Class StreamRecorderControl
             statusValueLabel.Text = "Recording"
             statusValueLabel.ForeColor = Color.Firebrick
             UpdateElapsedDisplay()
-            UpdateUiState(True)
-            UpdateStatusAccent()
         Catch ex As Exception
             AppendLog($"Failed to start stream recording: {ex.Message}")
             isFinalizingRecordingValue = False
@@ -493,9 +540,17 @@ Public Class StreamRecorderControl
             TearDownRunner()
             recordingStartedAtUtc = Nothing
             elapsedTimer.Stop()
-            UpdateUiState(False)
             statusValueLabel.Text = "Idle"
             statusValueLabel.ForeColor = Color.DarkGreen
+        Finally
+            isStartingRecordingValue = False
+
+            If streamRunner Is Nothing AndAlso String.Equals(statusValueLabel.Text, "Starting", StringComparison.OrdinalIgnoreCase) Then
+                statusValueLabel.Text = "Idle"
+                statusValueLabel.ForeColor = Color.DarkGreen
+            End If
+
+            UpdateUiState(streamRunner IsNot Nothing)
             UpdateStatusAccent()
         End Try
     End Sub
@@ -725,10 +780,6 @@ Public Class StreamRecorderControl
             Return
         End If
 
-        If ShouldUseRealtimeRead(inputUrl) Then
-            builder.Append("-re ")
-        End If
-
         builder.Append("-i ").Append(Quote(inputUrl)).Append(" ")
     End Sub
 
@@ -760,7 +811,38 @@ Public Class StreamRecorderControl
             inputUrl.StartsWith("..\", StringComparison.OrdinalIgnoreCase)
     End Function
 
-    Private Shared Function ShouldUseRealtimeRead(inputUrl As String) As Boolean
+    Private Function ShouldUseDirectFfmbcSegmentMode(inputUrls As IReadOnlyList(Of String), ffprobePath As String) As Boolean
+        If Not CanUseDirectFfmbcInput(inputUrls) Then
+            Return False
+        End If
+
+        Return Not HasFiniteInputDuration(inputUrls, ffprobePath)
+    End Function
+
+    Private Function HasFiniteInputDuration(inputUrls As IReadOnlyList(Of String), ffprobePath As String) As Boolean
+        If inputUrls Is Nothing OrElse inputUrls.Count = 0 Then
+            Return False
+        End If
+
+        For Each inputUrl In inputUrls
+            If HasFiniteInputDuration(inputUrl, ffprobePath) Then
+                Return True
+            End If
+        Next
+
+        Return False
+    End Function
+
+    Private Function HasFiniteInputDuration(inputUrl As String, ffprobePath As String) As Boolean
+        If IsClearlyFiniteInput(inputUrl) Then
+            Return True
+        End If
+
+        Dim durationSeconds = 0.0
+        Return TryGetInputDurationSeconds(inputUrl, ffprobePath, durationSeconds) AndAlso durationSeconds > 0.1
+    End Function
+
+    Private Shared Function IsClearlyFiniteInput(inputUrl As String) As Boolean
         If String.IsNullOrWhiteSpace(inputUrl) Then
             Return False
         End If
@@ -768,22 +850,50 @@ Public Class StreamRecorderControl
         Dim parsedUri As Uri = Nothing
 
         If Uri.TryCreate(inputUrl, UriKind.Absolute, parsedUri) Then
-            If parsedUri.IsFile Then
-                Return True
-            End If
-
-            Select Case parsedUri.Scheme.ToLowerInvariant()
-                Case "http", "https", "rtmp", "rtmps", "rtsp", "udp", "tcp"
-                    Return False
-            End Select
+            Return parsedUri.IsFile
         End If
 
-        If Path.IsPathRooted(inputUrl) Then
-            Return True
-        End If
-
-        Return inputUrl.StartsWith(".\", StringComparison.OrdinalIgnoreCase) OrElse
+        Return Path.IsPathRooted(inputUrl) OrElse
+            inputUrl.StartsWith(".\", StringComparison.OrdinalIgnoreCase) OrElse
             inputUrl.StartsWith("..\", StringComparison.OrdinalIgnoreCase)
+    End Function
+
+    Private Shared Function TryGetInputDurationSeconds(inputUrl As String, ffprobePath As String, ByRef durationSeconds As Double) As Boolean
+        durationSeconds = 0.0
+
+        If String.IsNullOrWhiteSpace(inputUrl) OrElse String.IsNullOrWhiteSpace(ffprobePath) OrElse Not File.Exists(ffprobePath) Then
+            Return False
+        End If
+
+        Dim startInfo As New ProcessStartInfo() With {
+            .FileName = ffprobePath,
+            .Arguments = $"-v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 {Quote(inputUrl)}",
+            .WorkingDirectory = AppContext.BaseDirectory,
+            .UseShellExecute = False,
+            .RedirectStandardOutput = True,
+            .RedirectStandardError = True,
+            .CreateNoWindow = True
+        }
+
+        Try
+            Using process As New Process() With {.StartInfo = startInfo}
+                If Not process.Start() Then
+                    Return False
+                End If
+
+                Dim standardOutput = process.StandardOutput.ReadToEnd().Trim()
+                process.StandardError.ReadToEnd()
+                process.WaitForExit()
+
+                If process.ExitCode <> 0 Then
+                    Return False
+                End If
+
+                Return Double.TryParse(standardOutput, NumberStyles.Float Or NumberStyles.AllowThousands, CultureInfo.InvariantCulture, durationSeconds)
+            End Using
+        Catch
+            Return False
+        End Try
     End Function
 
     Private Function BuildPreviewFilterGraph(inputUrls As IReadOnlyList(Of String)) As String
@@ -1542,19 +1652,34 @@ Public Class StreamRecorderControl
             sourceValue.Contains("fb.watch", StringComparison.OrdinalIgnoreCase)
     End Function
 
-    Private Sub StopRecording(sender As Object, e As EventArgs)
-        If streamRunner Is Nothing Then
+    Private Async Sub StopRecording(sender As Object, e As EventArgs)
+        If streamRunner Is Nothing OrElse isStoppingRecordingValue Then
             Return
         End If
 
+        Dim runner = streamRunner
+        isStoppingRecordingValue = True
         stopButton.Enabled = False
         continueDirectFfmbcRecordingValue = False
+        statusValueLabel.Text = "Stopping"
+        statusValueLabel.ForeColor = Color.DarkOrange
         AppendLog("Stopping stream recording...")
-        streamRunner.Stop()
+        UpdateUiState(True)
+        UpdateStatusAccent()
+
+        Try
+            Await Task.Run(Sub() runner.Stop())
+        Catch ex As Exception
+            AppendLog($"Stop request failed: {ex.Message}")
+        Finally
+            isStoppingRecordingValue = False
+            UpdateUiState(streamRunner IsNot Nothing)
+            UpdateStatusAccent()
+        End Try
     End Sub
 
-    Private Sub StartPreview(sender As Object, e As EventArgs)
-        If previewRunner IsNot Nothing OrElse streamRunner IsNot Nothing Then
+    Private Async Sub StartPreview(sender As Object, e As EventArgs)
+        If previewRunner IsNot Nothing OrElse streamRunner IsNot Nothing OrElse isStartingPreviewValue OrElse isStoppingPreviewValue OrElse isStartingRecordingValue OrElse isStoppingRecordingValue Then
             Return
         End If
 
@@ -1572,33 +1697,64 @@ Public Class StreamRecorderControl
             Return
         End If
 
+        isStartingPreviewValue = True
+        statusValueLabel.Text = "Starting Preview"
+        statusValueLabel.ForeColor = Color.DarkOrange
+        previewStateLabel.Text = "Starting preview..."
+        previewStateLabel.ForeColor = Color.DarkOrange
+        previewStateLabel.Visible = True
+        UpdateUiState(False)
+        UpdateStatusAccent()
+
         Try
             Directory.CreateDirectory(OutputFolderPath)
-            Dim inputUrls = ResolveInputUrls(sourceValue)
+            Dim inputUrls = Await Task.Run(Function() ResolveInputUrls(sourceValue))
+
+            If IsDisposed Then
+                Return
+            End If
+
             previewRunner = New PreviewFrameReader()
             previewRunner.Start(ffmpegPath, BuildPreviewArguments(inputUrls), OutputFolderPath)
             StartPreviewAudio(inputUrls)
             previewStateLabel.Visible = False
             statusValueLabel.Text = "Preview"
             statusValueLabel.ForeColor = Color.DarkGreen
-            UpdateUiState(False)
-            UpdateStatusAccent()
         Catch ex As Exception
             AppendLog($"Failed to start stream preview: {ex.Message}")
             TearDownPreview()
             statusValueLabel.Text = "Idle"
             statusValueLabel.ForeColor = Color.DarkGreen
+        Finally
+            isStartingPreviewValue = False
             UpdateUiState(False)
             UpdateStatusAccent()
         End Try
     End Sub
 
-    Private Sub StopPreview(sender As Object, e As EventArgs)
-        If previewRunner Is Nothing Then
+    Private Async Sub StopPreview(sender As Object, e As EventArgs)
+        If previewRunner Is Nothing OrElse isStoppingPreviewValue Then
             Return
         End If
 
-        previewRunner.Stop()
+        Dim runner = previewRunner
+        isStoppingPreviewValue = True
+        statusValueLabel.Text = "Stopping Preview"
+        statusValueLabel.ForeColor = Color.DarkOrange
+        previewStateLabel.Text = "Stopping preview..."
+        previewStateLabel.ForeColor = Color.DarkOrange
+        previewStateLabel.Visible = True
+        UpdateUiState(False)
+        UpdateStatusAccent()
+
+        Try
+            Await Task.Run(Sub() runner.Stop())
+        Catch ex As Exception
+            AppendLog($"Preview stop failed: {ex.Message}")
+        Finally
+            isStoppingPreviewValue = False
+        End Try
+
         TearDownPreview()
         statusValueLabel.Text = "Idle"
         statusValueLabel.ForeColor = Color.DarkGreen
@@ -1637,14 +1793,17 @@ Public Class StreamRecorderControl
     End Function
 
     Private Sub UpdateUiState(isRecording As Boolean)
-        Dim isBusy = isRecording
-        recordButton.Enabled = Not isBusy
-        stopButton.Enabled = isRecording
-        urlTextBox.Enabled = Not isBusy
-        intervalUpDown.Enabled = Not isBusy
-        profileComboBox.Enabled = Not isBusy
-        previewButton.Enabled = Not isBusy AndAlso previewRunner Is Nothing
-        stopPreviewButton.Enabled = Not isBusy AndAlso previewRunner IsNot Nothing
+        Dim isRecordingBusy = isRecording OrElse isStartingRecordingValue OrElse isStoppingRecordingValue
+        Dim isPreviewTransitioning = isStartingPreviewValue OrElse isStoppingPreviewValue
+        Dim hasPendingOperation = isRecordingBusy OrElse isPreviewTransitioning
+
+        recordButton.Enabled = Not hasPendingOperation
+        stopButton.Enabled = isRecording AndAlso Not isStartingRecordingValue AndAlso Not isStoppingRecordingValue
+        urlTextBox.Enabled = Not hasPendingOperation
+        intervalUpDown.Enabled = Not hasPendingOperation
+        profileComboBox.Enabled = Not hasPendingOperation
+        previewButton.Enabled = Not hasPendingOperation AndAlso previewRunner Is Nothing
+        stopPreviewButton.Enabled = Not hasPendingOperation AndAlso previewRunner IsNot Nothing
     End Sub
 
     Private Sub OnElapsedTimerTick(sender As Object, e As EventArgs)

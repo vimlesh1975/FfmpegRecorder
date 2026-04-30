@@ -74,6 +74,8 @@ The stream recorder panel accepts:
 
 For YouTube and Facebook page URLs, copy `yt-dlp.exe` beside the app executable. The app uses it to resolve the actual media URL before starting FFmpeg.
 
+Preview remains real-time for operator monitoring. Recording does not throttle input reads, so on-demand files and VOD URLs can be processed faster than real time while true live sources still record at live pace. When the source is finite, stream recording stops automatically at end of input.
+
 Stream recordings are named like:
 
 ```text
@@ -158,7 +160,7 @@ Default output:
 bin\Debug\net10.0-windows
 ```
 
-The project also creates a timestamped copy of the executable after each successful build, for example:
+The project keeps only a timestamped executable after each successful build, for example:
 
 ```text
 FfmpegRecorder_20260428_165229.exe
@@ -166,10 +168,10 @@ FfmpegRecorder_20260428_165229.exe
 
 ## Run
 
-Launch:
+Launch the timestamped executable:
 
 ```text
-bin\Debug\net10.0-windows\FfmpegRecorder.exe
+bin\Debug\net10.0-windows\FfmpegRecorder_yyyyMMdd_HHmmss.exe
 ```
 
 Before recording, confirm the required FFmpeg tools are in the same folder as the executable.

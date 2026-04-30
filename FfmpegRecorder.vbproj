@@ -27,7 +27,7 @@
     </ItemGroup>
 
     <Delete Files="@(ExistingTimestampedExecutables)" />
-    <Copy SourceFiles="$(ExecutableSourcePath)" DestinationFiles="$(TimestampedExecutablePath)" />
+    <Move SourceFiles="$(ExecutableSourcePath)" DestinationFiles="$(TimestampedExecutablePath)" />
     <Message Importance="High" Text="Created timestamped executable: $(TimestampedExecutablePath)" />
   </Target>
 
