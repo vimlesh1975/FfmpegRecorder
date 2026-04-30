@@ -44,7 +44,18 @@ The app reserves DeckLink inputs while panels are active so two camera panels do
 | `ProRes 422 (Medium)` | `.mov` | Balanced ProRes |
 | `ProRes 422 HQ (High)` | `.mov` | Highest quality ProRes profile in this app |
 
-DeckLink recording is configured for `1080i50`. MP4 profiles are written as `1920x1080` at `25 fps`.
+DeckLink camera recorders now support three input modes in the operator UI. The default is `Auto`:
+
+- `1080i50`: existing HD workflow
+- `PAL`: explicit SD PAL capture
+- `Auto`: lets FFmpeg/DeckLink auto-detect the incoming video mode when supported by the hardware
+
+When `PAL` or `Auto` is used, you can also choose `PAL Aspect`:
+
+- `4:3`: upconverts to `1920x1080` with pillarbox so geometry stays correct
+- `16:9`: upconverts PAL anamorphic widescreen to full-frame `1920x1080`
+
+MP4 profiles are written as `1920x1080` at `25 fps`. Interlaced broadcast and ProRes profiles keep an HD interlaced recording pipeline when PAL is upconverted.
 
 ## Sony-Compatible MXF Notes
 

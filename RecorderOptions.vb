@@ -11,6 +11,7 @@ Friend Class RecorderOptions
     Public Property ClipDurationSeconds As Integer
     Public Property ContainerExtension As String
     Public Property VideoFilter As String
+    Public Property PreviewVideoFilter As String
     Public Property OutputOptions As String
     Public Property UseSonyCompatibleAudioLayout As Boolean
 
@@ -52,7 +53,7 @@ Friend Class RecorderOptions
 
     Public Function BuildRecordingWithPreviewArguments(outputPattern As String, previewPort As Integer, audioMonitorPort As Integer, Optional previewWidth As Integer = 960, Optional previewFrameRate As Integer = 8) As String
         Dim builder As New StringBuilder()
-        Dim filterGraph = BuildRecordingPreviewFilterGraph(audioMonitorPort, previewWidth, previewFrameRate, VideoFilter)
+        Dim filterGraph = BuildRecordingPreviewFilterGraph(audioMonitorPort, previewWidth, previewFrameRate, VideoFilter, PreviewVideoFilter)
 
         AppendInputArguments(builder)
         builder.Append("-filter_complex ").Append(Quote(filterGraph)).Append(" ")
@@ -94,11 +95,11 @@ Friend Class RecorderOptions
 
     Public Function BuildPreviewArguments(Optional previewWidth As Integer = 960, Optional previewFrameRate As Integer = 8) As String
         Dim builder As New StringBuilder()
-        Dim filterGraph = BuildLivePreviewFilterGraph(previewWidth, previewFrameRate)
+        Dim filterGraph = BuildLivePreviewFilterGraph(previewWidth, previewFrameRate, PreviewVideoFilter)
 
         builder.Append("-hide_banner -loglevel warning -fflags nobuffer -flags low_delay ")
         builder.Append("-f decklink ")
-        builder.Append("-format_code ").Append(Quote(FormatCode)).Append(" ")
+        AppendFormatCodeArgument(builder)
         builder.Append("-audio_input ").Append(Quote(AudioInput)).Append(" ")
         builder.Append("-channels ").Append(Channels).Append(" ")
         builder.Append("-i ").Append(Quote(DeviceName)).Append(" ")
@@ -115,11 +116,11 @@ Friend Class RecorderOptions
         End If
 
         Dim builder As New StringBuilder()
-        Dim filterGraph = BuildLivePreviewFilterGraph(previewWidth, previewFrameRate)
+        Dim filterGraph = BuildLivePreviewFilterGraph(previewWidth, previewFrameRate, PreviewVideoFilter)
 
         builder.Append("-hide_banner -loglevel warning -fflags nobuffer -flags low_delay ")
         builder.Append("-f decklink ")
-        builder.Append("-format_code ").Append(Quote(FormatCode)).Append(" ")
+        AppendFormatCodeArgument(builder)
         builder.Append("-audio_input ").Append(Quote(AudioInput)).Append(" ")
         builder.Append("-channels ").Append(Channels).Append(" ")
         builder.Append("-i ").Append(Quote(DeviceName)).Append(" ")
@@ -141,7 +142,7 @@ Friend Class RecorderOptions
         Return $"tcp://127.0.0.1:{audioMonitorPort}?listen=1"
     End Function
 
-    Private Function BuildRecordingPreviewFilterGraph(audioMonitorPort As Integer, previewWidth As Integer, previewFrameRate As Integer, recordingVideoFilter As String) As String
+    Private Function BuildRecordingPreviewFilterGraph(audioMonitorPort As Integer, previewWidth As Integer, previewFrameRate As Integer, recordingVideoFilter As String, previewVideoFilter As String) As String
         Dim previewHeight = GetPreviewHeight(previewWidth)
         Dim meterChannelWidth = GetMeterChannelWidth(previewWidth)
         Dim meterOutputWidth = GetMeterOutputWidth(previewWidth)
@@ -149,9 +150,10 @@ Friend Class RecorderOptions
         Dim audioSplitCount = If(audioMonitorPort > 0, 3, 2)
         Dim rightMeterPan = GetRightMeterPanExpression()
         Dim recordingChain = BuildRecordingVideoChain(recordingVideoFilter)
+        Dim previewChain = BuildPreviewVideoChain(previewVideoFilter)
         Dim sonyCompatibleAudioChain = BuildSonyCompatibleAudioChain()
 
-        Return $"[0:v]split=2[rec_src][preview_src];{recordingChain}[preview_src]scale={previewWidth}:{previewHeight}:force_original_aspect_ratio=decrease,pad={previewWidth}:{previewHeight}:(ow-iw)/2:(oh-ih)/2,fps={Math.Max(1, previewFrameRate)},format=yuv420p[preview_video];[0:a]asplit={audioSplitCount}{audioSplitOutputs};{sonyCompatibleAudioChain}[meter_a]asplit=2[left_meter_src][right_meter_src];[left_meter_src]pan=mono|c0=c0,showvolume=r={Math.Max(1, previewFrameRate)}:w={meterChannelWidth}:h={previewHeight}:f=0.92:b=2:t=0:v=1:dm=1:o=v:ds=log:p=0.18:m=r[left_bar_src];[left_bar_src]scale={meterOutputWidth}:{previewHeight},format=yuv420p[left_bar];[right_meter_src]pan={rightMeterPan},showvolume=r={Math.Max(1, previewFrameRate)}:w={meterChannelWidth}:h={previewHeight}:f=0.92:b=2:t=0:v=1:dm=1:o=v:ds=log:p=0.18:m=r[right_bar_src];[right_bar_src]scale={meterOutputWidth}:{previewHeight},format=yuv420p[right_bar];[left_bar][preview_video][right_bar]hstack=inputs=3[preview]"
+        Return $"[0:v]split=2[rec_src][preview_src];{recordingChain}{previewChain}[preview_stage]scale={previewWidth}:{previewHeight}:force_original_aspect_ratio=decrease,pad={previewWidth}:{previewHeight}:(ow-iw)/2:(oh-ih)/2,fps={Math.Max(1, previewFrameRate)},format=yuv420p[preview_video];[0:a]asplit={audioSplitCount}{audioSplitOutputs};{sonyCompatibleAudioChain}[meter_a]asplit=2[left_meter_src][right_meter_src];[left_meter_src]pan=mono|c0=c0,showvolume=r={Math.Max(1, previewFrameRate)}:w={meterChannelWidth}:h={previewHeight}:f=0.92:b=2:t=0:v=1:dm=1:o=v:ds=log:p=0.18:m=r[left_bar_src];[left_bar_src]scale={meterOutputWidth}:{previewHeight},format=yuv420p[left_bar];[right_meter_src]pan={rightMeterPan},showvolume=r={Math.Max(1, previewFrameRate)}:w={meterChannelWidth}:h={previewHeight}:f=0.92:b=2:t=0:v=1:dm=1:o=v:ds=log:p=0.18:m=r[right_bar_src];[right_bar_src]scale={meterOutputWidth}:{previewHeight},format=yuv420p[right_bar];[left_bar][preview_video][right_bar]hstack=inputs=3[preview]"
     End Function
 
     Private Function BuildSonyCompatibleAudioChain() As String
@@ -187,13 +189,30 @@ Friend Class RecorderOptions
         Return $"[rec_src]{recordingVideoFilter.Trim()}[rec_v];"
     End Function
 
-    Private Function BuildLivePreviewFilterGraph(previewWidth As Integer, previewFrameRate As Integer) As String
+    Private Function BuildPreviewVideoChain(previewVideoFilter As String) As String
+        If String.IsNullOrWhiteSpace(previewVideoFilter) Then
+            Return "[preview_src]null[preview_stage];"
+        End If
+
+        Return $"[preview_src]{previewVideoFilter.Trim()}[preview_stage];"
+    End Function
+
+    Private Function BuildLivePreviewFilterGraph(previewWidth As Integer, previewFrameRate As Integer, previewVideoFilter As String) As String
         Dim previewHeight = GetPreviewHeight(previewWidth)
         Dim meterChannelWidth = GetMeterChannelWidth(previewWidth)
         Dim meterOutputWidth = GetMeterOutputWidth(previewWidth)
         Dim rightMeterPan = GetRightMeterPanExpression()
+        Dim previewChain = BuildStandalonePreviewVideoChain(previewVideoFilter)
 
-        Return $"[0:v]scale={previewWidth}:{previewHeight}:force_original_aspect_ratio=decrease,pad={previewWidth}:{previewHeight}:(ow-iw)/2:(oh-ih)/2,fps={Math.Max(1, previewFrameRate)},format=yuv420p[video];[0:a]asplit=2[left_meter_src][right_meter_src];[left_meter_src]pan=mono|c0=c0,showvolume=r={Math.Max(1, previewFrameRate)}:w={meterChannelWidth}:h={previewHeight}:f=0.92:b=2:t=0:v=1:dm=1:o=v:ds=log:p=0.18:m=r[left_bar_src];[left_bar_src]scale={meterOutputWidth}:{previewHeight},format=yuv420p[left_bar];[right_meter_src]pan={rightMeterPan},showvolume=r={Math.Max(1, previewFrameRate)}:w={meterChannelWidth}:h={previewHeight}:f=0.92:b=2:t=0:v=1:dm=1:o=v:ds=log:p=0.18:m=r[right_bar_src];[right_bar_src]scale={meterOutputWidth}:{previewHeight},format=yuv420p[right_bar];[left_bar][video][right_bar]hstack=inputs=3[out]"
+        Return $"{previewChain}[preview_stage]scale={previewWidth}:{previewHeight}:force_original_aspect_ratio=decrease,pad={previewWidth}:{previewHeight}:(ow-iw)/2:(oh-ih)/2,fps={Math.Max(1, previewFrameRate)},format=yuv420p[video];[0:a]asplit=2[left_meter_src][right_meter_src];[left_meter_src]pan=mono|c0=c0,showvolume=r={Math.Max(1, previewFrameRate)}:w={meterChannelWidth}:h={previewHeight}:f=0.92:b=2:t=0:v=1:dm=1:o=v:ds=log:p=0.18:m=r[left_bar_src];[left_bar_src]scale={meterOutputWidth}:{previewHeight},format=yuv420p[left_bar];[right_meter_src]pan={rightMeterPan},showvolume=r={Math.Max(1, previewFrameRate)}:w={meterChannelWidth}:h={previewHeight}:f=0.92:b=2:t=0:v=1:dm=1:o=v:ds=log:p=0.18:m=r[right_bar_src];[right_bar_src]scale={meterOutputWidth}:{previewHeight},format=yuv420p[right_bar];[left_bar][video][right_bar]hstack=inputs=3[out]"
+    End Function
+
+    Private Function BuildStandalonePreviewVideoChain(previewVideoFilter As String) As String
+        If String.IsNullOrWhiteSpace(previewVideoFilter) Then
+            Return "[0:v]null[preview_stage];"
+        End If
+
+        Return $"[0:v]{previewVideoFilter.Trim()}[preview_stage];"
     End Function
 
     Private Function GetPreviewHeight(previewWidth As Integer) As Integer
@@ -234,10 +253,18 @@ Friend Class RecorderOptions
     Private Sub AppendInputArguments(builder As StringBuilder)
         builder.Append("-hide_banner ")
         builder.Append("-f decklink ")
-        builder.Append("-format_code ").Append(Quote(FormatCode)).Append(" ")
+        AppendFormatCodeArgument(builder)
         builder.Append("-audio_input ").Append(Quote(AudioInput)).Append(" ")
         builder.Append("-channels ").Append(Channels).Append(" ")
         builder.Append("-i ").Append(Quote(DeviceName)).Append(" ")
+    End Sub
+
+    Private Sub AppendFormatCodeArgument(builder As StringBuilder)
+        If String.IsNullOrWhiteSpace(FormatCode) Then
+            Return
+        End If
+
+        builder.Append("-format_code ").Append(Quote(FormatCode.Trim())).Append(" ")
     End Sub
 
     Private Function GetSegmentFormat() As String

@@ -29,6 +29,10 @@ Partial Public Class RecorderHostForm
     Private ReadOnly recordingDirectoryTextBox As New TextBox()
     Private ReadOnly browseRecordingDirectoryButton As New Button()
     Private ReadOnly recordingDriveFreeSpaceLabel As New Label()
+    Private ReadOnly inputModeLabel As New Label()
+    Private ReadOnly inputModeComboBox As New ComboBox()
+    Private ReadOnly palAspectLabel As New Label()
+    Private ReadOnly palAspectComboBox As New ComboBox()
     Private isAdjustingCommonHeaderHeight As Boolean
     Private hasSystemCpuSample As Boolean
     Private lastSystemCpuSample As SystemCpuSample
@@ -51,6 +55,8 @@ Partial Public Class RecorderHostForm
         AddHandler audioListenComboBox.SelectedIndexChanged, AddressOf OnAudioListenSelectionChanged
         AddHandler profileComboBox.SelectedIndexChanged, AddressOf OnSharedProfileChanged
         AddHandler intervalUpDown.ValueChanged, AddressOf OnSharedIntervalChanged
+        AddHandler inputModeComboBox.SelectedIndexChanged, AddressOf OnSharedInputModeChanged
+        AddHandler palAspectComboBox.SelectedIndexChanged, AddressOf OnSharedPalAspectChanged
         AddHandler recordAllButton.Click, AddressOf OnRecordAllClicked
         AddHandler stopAllButton.Click, AddressOf OnStopAllClicked
         AddHandler openRecordingsButton.Click, AddressOf OnOpenRecordingsClicked
@@ -64,9 +70,14 @@ Partial Public Class RecorderHostForm
 
         profileComboBox.Items.Clear()
         profileComboBox.Items.AddRange(leftRecorderControl.AvailableProfileNames.ToArray())
+        inputModeComboBox.Items.Clear()
+        inputModeComboBox.Items.AddRange(leftRecorderControl.AvailableInputModeNames.ToArray())
+        palAspectComboBox.Items.Clear()
+        palAspectComboBox.Items.AddRange(leftRecorderControl.AvailablePalAspectNames.ToArray())
 
         audioListenComboBox.Items.AddRange(New Object() {"Off", "CAM1", "CAM2", "CAM3", "CAM4"})
         audioListenComboBox.SelectedItem = "CAM1"
+        InitializeSharedDeckLinkControls()
         InitializeRecordingDirectoryControls()
         RefreshRecordingDirectoryDisplay()
 
@@ -100,7 +111,7 @@ Partial Public Class RecorderHostForm
             .WrapContents = True
         }
 
-        leftSectionPanel.Controls.Add(BuildCommonSection("Setup", profileLabel, profileComboBox, intervalLabel, intervalUpDown))
+        leftSectionPanel.Controls.Add(BuildCommonSection("Setup", profileLabel, profileComboBox, intervalLabel, intervalUpDown, inputModeLabel, inputModeComboBox, palAspectLabel, palAspectComboBox))
         leftSectionPanel.Controls.Add(BuildCommonSection("Recording", recordAllButton, stopAllButton, openRecordingsButton, deleteAllButton))
         leftSectionPanel.Controls.Add(BuildCommonSection("Folder", recordingDirectoryPanel))
         leftSectionPanel.Controls.Add(BuildCommonSection("Audio", audioListenPanel))
@@ -166,6 +177,28 @@ Partial Public Class RecorderHostForm
         recordingDirectoryPanel.Controls.Add(recordingDirectoryLabel)
         recordingDirectoryPanel.Controls.Add(recordingDirectoryTextBox)
         recordingDirectoryPanel.Controls.Add(browseRecordingDirectoryButton)
+    End Sub
+
+    Private Sub InitializeSharedDeckLinkControls()
+        inputModeLabel.AutoSize = True
+        inputModeLabel.Font = New Font("Segoe UI", 9.0F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
+        inputModeLabel.Margin = New Padding(0, 4, 6, 0)
+        inputModeLabel.Text = "Input"
+
+        inputModeComboBox.DropDownStyle = ComboBoxStyle.DropDownList
+        inputModeComboBox.Font = New Font("Segoe UI", 9.0F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
+        inputModeComboBox.Margin = New Padding(0)
+        inputModeComboBox.Size = New Size(110, 23)
+
+        palAspectLabel.AutoSize = True
+        palAspectLabel.Font = New Font("Segoe UI", 9.0F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
+        palAspectLabel.Margin = New Padding(0, 4, 6, 0)
+        palAspectLabel.Text = "PAL Aspect"
+
+        palAspectComboBox.DropDownStyle = ComboBoxStyle.DropDownList
+        palAspectComboBox.Font = New Font("Segoe UI", 9.0F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
+        palAspectComboBox.Margin = New Padding(0)
+        palAspectComboBox.Size = New Size(88, 23)
     End Sub
 
     Private Function BuildCommonSection(title As String, ParamArray controls As Control()) As FlowLayoutPanel
@@ -441,6 +474,38 @@ Partial Public Class RecorderHostForm
         Next
     End Sub
 
+    Private Sub OnSharedInputModeChanged(sender As Object, e As EventArgs)
+        If suppressSharedOperatorEvents Then
+            Return
+        End If
+
+        Dim selectedInputModeName = TryCast(inputModeComboBox.SelectedItem, String)
+
+        If String.IsNullOrWhiteSpace(selectedInputModeName) Then
+            Return
+        End If
+
+        For Each recorderControl In GetRecorderControls()
+            recorderControl.SelectedInputModeName = selectedInputModeName
+        Next
+    End Sub
+
+    Private Sub OnSharedPalAspectChanged(sender As Object, e As EventArgs)
+        If suppressSharedOperatorEvents Then
+            Return
+        End If
+
+        Dim selectedPalAspectName = TryCast(palAspectComboBox.SelectedItem, String)
+
+        If String.IsNullOrWhiteSpace(selectedPalAspectName) Then
+            Return
+        End If
+
+        For Each recorderControl In GetRecorderControls()
+            recorderControl.SelectedPalAspectName = selectedPalAspectName
+        Next
+    End Sub
+
     Private Sub OnRecordAllClicked(sender As Object, e As EventArgs)
         For Each recorderControl In GetRecorderControls()
             If recorderControl.IncludeInRecordAll Then
@@ -636,12 +701,16 @@ Partial Public Class RecorderHostForm
         Try
             profileComboBox.SelectedItem = sourceRecorder.SelectedProfileName
             intervalUpDown.Value = Math.Max(intervalUpDown.Minimum, Math.Min(intervalUpDown.Maximum, sourceRecorder.ClipIntervalSeconds))
+            inputModeComboBox.SelectedItem = sourceRecorder.SelectedInputModeName
+            palAspectComboBox.SelectedItem = sourceRecorder.SelectedPalAspectName
         Finally
             suppressSharedOperatorEvents = False
         End Try
 
         OnSharedProfileChanged(Me, EventArgs.Empty)
         OnSharedIntervalChanged(Me, EventArgs.Empty)
+        OnSharedInputModeChanged(Me, EventArgs.Empty)
+        OnSharedPalAspectChanged(Me, EventArgs.Empty)
     End Sub
 
     Private Sub UpdateCpuLabels()

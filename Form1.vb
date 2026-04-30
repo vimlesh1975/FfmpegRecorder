@@ -11,6 +11,8 @@ Partial Public Class RecorderControl
         Public Property DeviceName As String
         Public Property ProfileName As String
         Public Property IntervalSeconds As Integer
+        Public Property InputModeName As String
+        Public Property PalAspectName As String
     End Class
 
     Private NotInheritable Class CpuSample
@@ -63,6 +65,12 @@ Partial Public Class RecorderControl
         Public ReadOnly Property TempOutputFolder As String
         Public ReadOnly Property FinalOutputFolder As String
     End Class
+
+    Private Const DeckLinkInputModeAuto As String = "Auto"
+    Private Const DeckLinkInputModeHd50 As String = "1080i50"
+    Private Const DeckLinkInputModePal As String = "PAL"
+    Private Const PalAspect4By3 As String = "4:3"
+    Private Const PalAspect16By9 As String = "16:9"
 
     Private Const PreviewWidth As Integer = 360
     Private Const PreviewHeight As Integer = 202
@@ -126,6 +134,8 @@ Partial Public Class RecorderControl
     Private ReadOnly deviceValueLabel As New Label()
     Private ReadOnly intervalUpDown As New NumericUpDown()
     Private ReadOnly profileComboBox As New ComboBox()
+    Private ReadOnly inputModeComboBox As New ComboBox()
+    Private ReadOnly palAspectComboBox As New ComboBox()
     Private ReadOnly recordButton As New Button()
     Private ReadOnly stopButton As New Button()
     Private ReadOnly includeInRecordAllCheckBox As New CheckBox()
@@ -157,6 +167,8 @@ Partial Public Class RecorderControl
     Private recordingStartedAtUtc As DateTime?
     Private deckLinkInputAvailableValue As Boolean = True
     Private deckLinkUnavailableReason As String = "No free DeckLink input available"
+    Private savedInputModeValue As String = DeckLinkInputModeAuto
+    Private savedPalAspectValue As String = PalAspect4By3
     Private isFinalizingRecordingValue As Boolean
     Private isStoppingCaptureValue As Boolean
     Private currentRecordingUsesFfmbcFinalize As Boolean
@@ -276,6 +288,70 @@ Partial Public Class RecorderControl
     End Property
 
     <Browsable(False), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)>
+    Public ReadOnly Property AvailableInputModeNames As IReadOnlyList(Of String)
+        Get
+            Return inputModeComboBox.Items.Cast(Of Object)().
+                Select(Function(item) item.ToString()).
+                ToArray()
+        End Get
+    End Property
+
+    <Browsable(False), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)>
+    Public Property SelectedInputModeName As String
+        Get
+            Return GetSelectedInputModeName()
+        End Get
+        Set(value As String)
+            If String.IsNullOrWhiteSpace(value) Then
+                Return
+            End If
+
+            Dim matchingItem = inputModeComboBox.Items.
+                Cast(Of Object)().
+                Select(Function(item) item.ToString()).
+                FirstOrDefault(Function(item) String.Equals(item, value, StringComparison.OrdinalIgnoreCase))
+
+            If String.IsNullOrWhiteSpace(matchingItem) Then
+                Return
+            End If
+
+            inputModeComboBox.SelectedItem = matchingItem
+        End Set
+    End Property
+
+    <Browsable(False), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)>
+    Public ReadOnly Property AvailablePalAspectNames As IReadOnlyList(Of String)
+        Get
+            Return palAspectComboBox.Items.Cast(Of Object)().
+                Select(Function(item) item.ToString()).
+                ToArray()
+        End Get
+    End Property
+
+    <Browsable(False), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)>
+    Public Property SelectedPalAspectName As String
+        Get
+            Return GetSelectedPalAspectName()
+        End Get
+        Set(value As String)
+            If String.IsNullOrWhiteSpace(value) Then
+                Return
+            End If
+
+            Dim matchingItem = palAspectComboBox.Items.
+                Cast(Of Object)().
+                Select(Function(item) item.ToString()).
+                FirstOrDefault(Function(item) String.Equals(item, value, StringComparison.OrdinalIgnoreCase))
+
+            If String.IsNullOrWhiteSpace(matchingItem) Then
+                Return
+            End If
+
+            palAspectComboBox.SelectedItem = matchingItem
+        End Set
+    End Property
+
+    <Browsable(False), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)>
     Public Property ClipIntervalSeconds As Integer
         Get
             Return GetSelectedClipDurationSeconds()
@@ -384,10 +460,11 @@ Partial Public Class RecorderControl
         Dim panel As New TableLayoutPanel() With {
             .Dock = DockStyle.Top,
             .ColumnCount = 1,
-            .RowCount = 4,
+            .RowCount = 5,
             .AutoSize = True,
             .Margin = New Padding(0, 0, 0, 8)
         }
+        panel.RowStyles.Add(New RowStyle(SizeType.AutoSize))
         panel.RowStyles.Add(New RowStyle(SizeType.AutoSize))
         panel.RowStyles.Add(New RowStyle(SizeType.AutoSize))
         panel.RowStyles.Add(New RowStyle(SizeType.AutoSize))
@@ -461,6 +538,57 @@ Partial Public Class RecorderControl
         intervalUpDown.Anchor = AnchorStyles.Left
         intervalUpDown.Margin = New Padding(0, 3, 0, 3)
         AddHandler intervalUpDown.ValueChanged, AddressOf OnIntervalValueChanged
+
+        Dim inputRow As New TableLayoutPanel() With {
+            .AutoSize = True,
+            .ColumnCount = 5,
+            .RowCount = 1,
+            .Dock = DockStyle.Fill,
+            .Margin = New Padding(0, 2, 0, 0)
+        }
+        inputRow.ColumnStyles.Add(New ColumnStyle(SizeType.AutoSize))
+        inputRow.ColumnStyles.Add(New ColumnStyle(SizeType.AutoSize))
+        inputRow.ColumnStyles.Add(New ColumnStyle(SizeType.AutoSize))
+        inputRow.ColumnStyles.Add(New ColumnStyle(SizeType.AutoSize))
+        inputRow.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 100.0F))
+        inputRow.RowStyles.Add(New RowStyle(SizeType.AutoSize))
+
+        Dim inputModeLabel As New Label() With {
+            .AutoSize = True,
+            .Text = "Input",
+            .Anchor = AnchorStyles.Left,
+            .Margin = New Padding(0, 6, 6, 6)
+        }
+
+        inputModeComboBox.DropDownStyle = ComboBoxStyle.DropDownList
+        inputModeComboBox.Width = 120
+        inputModeComboBox.Anchor = AnchorStyles.Left
+        inputModeComboBox.Margin = New Padding(0, 3, 12, 3)
+        inputModeComboBox.Items.AddRange(New Object() {
+            DeckLinkInputModeHd50,
+            DeckLinkInputModePal,
+            DeckLinkInputModeAuto
+        })
+        inputModeComboBox.SelectedItem = DeckLinkInputModeAuto
+        AddHandler inputModeComboBox.SelectedIndexChanged, AddressOf OnInputModeChanged
+
+        Dim palAspectLabel As New Label() With {
+            .AutoSize = True,
+            .Text = "PAL Aspect",
+            .Anchor = AnchorStyles.Left,
+            .Margin = New Padding(0, 6, 6, 6)
+        }
+
+        palAspectComboBox.DropDownStyle = ComboBoxStyle.DropDownList
+        palAspectComboBox.Width = 90
+        palAspectComboBox.Anchor = AnchorStyles.Left
+        palAspectComboBox.Margin = New Padding(0, 3, 0, 3)
+        palAspectComboBox.Items.AddRange(New Object() {
+            PalAspect4By3,
+            PalAspect16By9
+        })
+        palAspectComboBox.SelectedItem = PalAspect4By3
+        AddHandler palAspectComboBox.SelectedIndexChanged, AddressOf OnPalAspectChanged
 
         Dim deviceRow As New TableLayoutPanel() With {
             .AutoSize = True,
@@ -540,6 +668,11 @@ Partial Public Class RecorderControl
         headerRow.Controls.Add(intervalLabel, 4, 0)
         headerRow.Controls.Add(intervalUpDown, 5, 0)
 
+        inputRow.Controls.Add(inputModeLabel, 0, 0)
+        inputRow.Controls.Add(inputModeComboBox, 1, 0)
+        inputRow.Controls.Add(palAspectLabel, 2, 0)
+        inputRow.Controls.Add(palAspectComboBox, 3, 0)
+
         deviceRow.Controls.Add(deviceLabel, 0, 0)
         deviceRow.Controls.Add(deviceComboBox, 1, 0)
         deviceRow.Controls.Add(recordButton, 2, 0)
@@ -549,8 +682,10 @@ Partial Public Class RecorderControl
         deviceInfoRow.Controls.Add(recordingElapsedLabel, 0, 0)
 
         panel.Controls.Add(headerRow, 0, 0)
-        panel.Controls.Add(deviceRow, 0, 1)
-        panel.Controls.Add(deviceInfoRow, 0, 2)
+        panel.Controls.Add(inputRow, 0, 1)
+        panel.Controls.Add(deviceRow, 0, 2)
+        panel.Controls.Add(deviceInfoRow, 0, 3)
+        UpdatePalAspectUiState()
 
         Return panel
     End Function
@@ -698,7 +833,7 @@ Partial Public Class RecorderControl
 
         Dim options = CreateDefaultOptions()
 
-        deviceValueLabel.Text = $"{GetRecordingPrefix()} | {options.DeviceName} | 1080i50 | {options.ClipDurationSeconds} s {GetSelectedRecordingProfile().SummaryText} | L/R dBFS"
+        deviceValueLabel.Text = $"{GetRecordingPrefix()} | {options.DeviceName} | {GetSelectedInputSummaryText()} | {options.ClipDurationSeconds} s {GetSelectedRecordingProfile().SummaryText} | L/R dBFS"
     End Sub
 
     Private Function CreateDefaultOptions() As RecorderOptions
@@ -707,14 +842,15 @@ Partial Public Class RecorderControl
         Return New RecorderOptions With {
             .FfmpegPath = ResolveFfmpegPath(),
             .DeviceName = GetSelectedDeviceName(),
-            .FormatCode = "Hi50",
+            .FormatCode = GetSelectedDeckLinkFormatCode(),
             .AudioInput = "embedded",
             .Channels = 2,
             .OutputFolder = OutputFolderPath,
             .FilePrefix = GetRecordingPrefix(),
             .ClipDurationSeconds = GetSelectedClipDurationSeconds(),
             .ContainerExtension = selectedProfile.ContainerExtension,
-            .VideoFilter = selectedProfile.VideoFilter,
+            .VideoFilter = BuildSelectedRecordingVideoFilter(selectedProfile),
+            .PreviewVideoFilter = BuildSelectedPreviewVideoFilter(),
             .OutputOptions = selectedProfile.OutputOptions,
             .UseSonyCompatibleAudioLayout = selectedProfile.UseFfmbcFinalize
         }
@@ -722,6 +858,89 @@ Partial Public Class RecorderControl
 
     Private Function GetSelectedRecordingProfile() As RecordingProfileDefinition
         Return If(TryCast(profileComboBox.SelectedItem, RecordingProfileDefinition), xdcamHd422Profile)
+    End Function
+
+    Private Function GetSelectedInputModeName() As String
+        Return If(TryCast(inputModeComboBox.SelectedItem, String), DeckLinkInputModeAuto)
+    End Function
+
+    Private Function GetSelectedPalAspectName() As String
+        Return If(TryCast(palAspectComboBox.SelectedItem, String), PalAspect4By3)
+    End Function
+
+    Private Function GetSelectedDeckLinkFormatCode() As String
+        Select Case GetSelectedInputModeName()
+            Case DeckLinkInputModePal
+                Return "pal"
+            Case DeckLinkInputModeAuto
+                Return Nothing
+            Case Else
+                Return "Hi50"
+        End Select
+    End Function
+
+    Private Function GetSelectedInputSummaryText() As String
+        Select Case GetSelectedInputModeName()
+            Case DeckLinkInputModePal
+                Return $"PAL {GetSelectedPalAspectName()} -> HD"
+            Case DeckLinkInputModeAuto
+                Return $"Auto ({GetSelectedPalAspectName()} PAL -> HD)"
+            Case Else
+                Return DeckLinkInputModeHd50
+        End Select
+    End Function
+
+    Private Function BuildSelectedPreviewVideoFilter() As String
+        Select Case GetSelectedInputModeName()
+            Case DeckLinkInputModePal
+                Return $"setsar=sar={GetPalSarValue()}"
+            Case DeckLinkInputModeAuto
+                Return $"setsar=sar={GetConditionalPalSarExpression()}"
+            Case Else
+                Return Nothing
+        End Select
+    End Function
+
+    Private Function BuildSelectedRecordingVideoFilter(selectedProfile As RecordingProfileDefinition) As String
+        Dim inputModeName = GetSelectedInputModeName()
+
+        If String.Equals(inputModeName, DeckLinkInputModeHd50, StringComparison.OrdinalIgnoreCase) Then
+            Return selectedProfile.VideoFilter
+        End If
+
+        Dim sourceSarExpression = If(String.Equals(inputModeName, DeckLinkInputModeAuto, StringComparison.OrdinalIgnoreCase), GetConditionalPalSarExpression(), GetPalSarValue())
+
+        If IsMp4Profile(selectedProfile) Then
+            Return String.Join(",",
+                $"setsar=sar={sourceSarExpression}",
+                "bwdif=mode=send_frame:parity=auto:deint=all",
+                "scale=1920:1080:flags=lanczos:force_original_aspect_ratio=decrease",
+                "pad=1920:1080:(ow-iw)/2:(oh-ih)/2",
+                "setsar=1",
+                "fps=25")
+        End If
+
+        Return String.Join(",",
+            $"setsar=sar={sourceSarExpression}",
+            "scale=1920:1080:flags=lanczos:interl=1:force_original_aspect_ratio=decrease",
+            "pad=1920:1080:(ow-iw)/2:(oh-ih)/2",
+            "setsar=1")
+    End Function
+
+    Private Function IsMp4Profile(selectedProfile As RecordingProfileDefinition) As Boolean
+        Return Object.ReferenceEquals(selectedProfile, mp4HighResProfile) OrElse Object.ReferenceEquals(selectedProfile, mp4LowResProfile)
+    End Function
+
+    Private Function GetPalSarValue() As String
+        If String.Equals(GetSelectedPalAspectName(), PalAspect16By9, StringComparison.OrdinalIgnoreCase) Then
+            Return "64/45"
+        End If
+
+        Return "16/15"
+    End Function
+
+    Private Function GetConditionalPalSarExpression() As String
+        Return $"if(lte(h\,576)\,{GetPalSarValue()}\,1)"
     End Function
 
     Private Function GetPreferredDefaultDeviceName() As String
@@ -770,7 +989,9 @@ Partial Public Class RecorderControl
         Dim loadedSettings As New OperatorSettings With {
             .DeviceName = GetPreferredDefaultDeviceName(),
             .ProfileName = xdcamHd422Profile.DisplayName,
-            .IntervalSeconds = 10
+            .IntervalSeconds = 10,
+            .InputModeName = DeckLinkInputModeAuto,
+            .PalAspectName = PalAspect4By3
         }
 
         For Each rawLine In File.ReadAllLines(settingsFilePath)
@@ -802,6 +1023,14 @@ Partial Public Class RecorderControl
                     If Integer.TryParse(value, parsedInterval) Then
                         loadedSettings.IntervalSeconds = parsedInterval
                     End If
+                Case "inputMode"
+                    If Not String.IsNullOrWhiteSpace(value) Then
+                        loadedSettings.InputModeName = value
+                    End If
+                Case "palAspect"
+                    If Not String.IsNullOrWhiteSpace(value) Then
+                        loadedSettings.PalAspectName = value
+                    End If
             End Select
         Next
 
@@ -813,6 +1042,8 @@ Partial Public Class RecorderControl
 
         Try
             savedDeviceName = If(String.IsNullOrWhiteSpace(settings.DeviceName), GetPreferredDefaultDeviceName(), settings.DeviceName)
+            savedInputModeValue = If(String.IsNullOrWhiteSpace(settings.InputModeName), DeckLinkInputModeAuto, settings.InputModeName)
+            savedPalAspectValue = If(String.IsNullOrWhiteSpace(settings.PalAspectName), PalAspect4By3, settings.PalAspectName)
 
             Dim clampedInterval = Math.Max(CInt(intervalUpDown.Minimum), Math.Min(CInt(intervalUpDown.Maximum), settings.IntervalSeconds))
             intervalUpDown.Value = clampedInterval
@@ -829,6 +1060,9 @@ Partial Public Class RecorderControl
             Next
 
             profileComboBox.SelectedItem = If(selectedProfile, xdcamHd422Profile)
+            inputModeComboBox.SelectedItem = If(inputModeComboBox.Items.Contains(savedInputModeValue), savedInputModeValue, DeckLinkInputModeAuto)
+            palAspectComboBox.SelectedItem = If(palAspectComboBox.Items.Contains(savedPalAspectValue), savedPalAspectValue, PalAspect4By3)
+            UpdatePalAspectUiState()
         Finally
             suppressSettingsSave = False
         End Try
@@ -847,11 +1081,15 @@ Partial Public Class RecorderControl
         End If
 
         savedDeviceName = GetSelectedDeviceName()
+        savedInputModeValue = GetSelectedInputModeName()
+        savedPalAspectValue = GetSelectedPalAspectName()
 
         Dim lines = {
             $"device={savedDeviceName}",
             $"profile={GetSelectedRecordingProfile().DisplayName}",
-            $"interval={GetSelectedClipDurationSeconds()}"
+            $"interval={GetSelectedClipDurationSeconds()}",
+            $"inputMode={GetSelectedInputModeName()}",
+            $"palAspect={GetSelectedPalAspectName()}"
         }
 
         File.WriteAllLines(settingsFilePath, lines)
@@ -1140,6 +1378,24 @@ Partial Public Class RecorderControl
         Return Decimal.ToInt32(intervalUpDown.Value)
     End Function
 
+    Private Sub UpdatePalAspectUiState()
+        Dim shouldEnablePalAspect = Not String.Equals(GetSelectedInputModeName(), DeckLinkInputModeHd50, StringComparison.OrdinalIgnoreCase)
+        palAspectComboBox.Enabled = shouldEnablePalAspect AndAlso captureRunner Is Nothing AndAlso deckLinkInputAvailableValue
+    End Sub
+
+    Private Sub RefreshIdlePreviewForInputSettingChange(statusMessage As String)
+        If suppressSettingsSave OrElse Not hasLoadedOnce OrElse captureRunner IsNot Nothing Then
+            Return
+        End If
+
+        TearDownAudioMonitor(fast:=True)
+        StopIdlePreview(statusMessage, fast:=True)
+
+        If deckLinkInputAvailableValue Then
+            StartIdlePreview()
+        End If
+    End Sub
+
     Private Sub OnIntervalValueChanged(sender As Object, e As EventArgs)
         UpdateStaticInfo()
         SaveOperatorSettings()
@@ -1148,6 +1404,22 @@ Partial Public Class RecorderControl
     Private Sub OnProfileChanged(sender As Object, e As EventArgs)
         UpdateStaticInfo()
         SaveOperatorSettings()
+    End Sub
+
+    Private Sub OnInputModeChanged(sender As Object, e As EventArgs)
+        savedInputModeValue = GetSelectedInputModeName()
+        UpdatePalAspectUiState()
+        UpdateStaticInfo()
+        SaveOperatorSettings()
+        RefreshIdlePreviewForInputSettingChange("Updating input mode...")
+    End Sub
+
+    Private Sub OnPalAspectChanged(sender As Object, e As EventArgs)
+        savedPalAspectValue = GetSelectedPalAspectName()
+        UpdatePalAspectUiState()
+        UpdateStaticInfo()
+        SaveOperatorSettings()
+        RefreshIdlePreviewForInputSettingChange("Updating PAL aspect...")
     End Sub
 
     Private Sub OnDeviceChanged(sender As Object, e As EventArgs)
@@ -1223,6 +1495,7 @@ Partial Public Class RecorderControl
             .ClipDurationSeconds = sourceOptions.ClipDurationSeconds,
             .ContainerExtension = sourceOptions.ContainerExtension,
             .VideoFilter = sourceOptions.VideoFilter,
+            .PreviewVideoFilter = sourceOptions.PreviewVideoFilter,
             .OutputOptions = sourceOptions.OutputOptions,
             .UseSonyCompatibleAudioLayout = sourceOptions.UseSonyCompatibleAudioLayout
         }
@@ -2004,8 +2277,10 @@ Partial Public Class RecorderControl
         stopButton.Enabled = isRecording AndAlso Not isStoppingCaptureValue
         intervalUpDown.Enabled = deckLinkInputAvailableValue AndAlso Not isBusy
         profileComboBox.Enabled = deckLinkInputAvailableValue AndAlso Not isBusy
+        inputModeComboBox.Enabled = deckLinkInputAvailableValue AndAlso Not isBusy
         deviceComboBox.Enabled = deckLinkInputAvailableValue AndAlso Not isBusy
         includeInRecordAllCheckBox.Enabled = deckLinkInputAvailableValue AndAlso Not isBusy
+        UpdatePalAspectUiState()
     End Sub
 
     Private Sub SetDeckLinkAvailability(isAvailable As Boolean, Optional unavailableReason As String = "No free DeckLink input available")
@@ -2027,6 +2302,7 @@ Partial Public Class RecorderControl
         End If
 
         UpdateUiState(captureRunner IsNot Nothing)
+        UpdatePalAspectUiState()
         UpdateRecorderStatusAccent()
     End Sub
 
