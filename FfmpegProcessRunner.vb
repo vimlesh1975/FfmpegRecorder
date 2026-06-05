@@ -100,6 +100,31 @@ Friend Class FfmpegProcessRunner
         End Try
     End Sub
 
+    Public Function SendLine(line As String) As Boolean
+        Dim process As Process = Nothing
+
+        SyncLock syncRoot
+            process = currentProcess
+        End SyncLock
+
+        If process Is Nothing Then
+            Return False
+        End If
+
+        Try
+            If process.HasExited Then
+                Return False
+            End If
+
+            process.StandardInput.WriteLine(line)
+            process.StandardInput.Flush()
+            Return True
+        Catch ex As Exception
+            RaiseEvent LogReceived($"Process input failed: {ex.Message}")
+            Return False
+        End Try
+    End Function
+
     Private Sub OnDataReceived(sender As Object, e As DataReceivedEventArgs)
         If Not String.IsNullOrWhiteSpace(e.Data) Then
             RaiseEvent LogReceived(e.Data)

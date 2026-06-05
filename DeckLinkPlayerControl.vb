@@ -102,6 +102,7 @@ Public Class DeckLinkPlayerControl
     Private ReadOnly scrubberTrackBar As New TrackBar()
     Private ReadOnly scrubberTimeLabel As New Label()
     Private ReadOnly playbackPositionTimer As New Timer()
+    Private ReadOnly scrubPreviewTimer As New Timer()
     Private ReadOnly statusLabel As New Label()
 
     Private WithEvents previewRunner As PreviewFrameReader
@@ -115,14 +116,19 @@ Public Class DeckLinkPlayerControl
     Private isStoppingOutput As Boolean
     Private isSeekingPlayback As Boolean
     Private isScrubberDragging As Boolean
+    Private isScrubFrameRenderRunning As Boolean
     Private speakerMonitorEnabledValue As Boolean
     Private durationProbeGeneration As Integer
     Private hasAppliedInitialBrowserSplit As Boolean
     Private outputRunnerUsesSdkHelper As Boolean
+    Private outputRunnerIsScrubHold As Boolean
+    Private scrubDeckLinkOutputKey As String
     Private lastDeckLinkOutputMessage As String
     Private playbackStartOffset As TimeSpan = TimeSpan.Zero
     Private playbackClockOffset As TimeSpan = TimeSpan.Zero
     Private playbackClockStartedAtUtc As DateTime
+    Private pendingScrubFrameOffset As TimeSpan?
+    Private pendingScrubFrameShouldUpdateDeckLink As Boolean
     Private ReadOnly durationByPath As New Dictionary(Of String, TimeSpan)(StringComparer.OrdinalIgnoreCase)
 
     Public Sub New()
@@ -151,6 +157,8 @@ Public Class DeckLinkPlayerControl
         AddHandler scrubberTrackBar.Scroll, AddressOf OnScrubberScrolled
         AddHandler scrubberTrackBar.KeyUp, AddressOf OnScrubberKeyUp
         AddHandler playbackPositionTimer.Tick, AddressOf OnPlaybackPositionTimerTick
+        scrubPreviewTimer.Interval = 140
+        AddHandler scrubPreviewTimer.Tick, AddressOf OnScrubPreviewTimerTick
     End Sub
 
     <Browsable(False)>
@@ -643,12 +651,14 @@ Public Class DeckLinkPlayerControl
         If scrubberTrackBar.Enabled AndAlso e.Button = MouseButtons.Left Then
             isScrubberDragging = True
             SetScrubberPositionFromMouse(e)
+            QueueScrubFramePreview(GetScrubberOffset(), updateDeckLink:=False)
         End If
     End Sub
 
     Private Sub OnScrubberMouseMove(sender As Object, e As MouseEventArgs)
         If isScrubberDragging AndAlso scrubberTrackBar.Enabled Then
             SetScrubberPositionFromMouse(e)
+            ScheduleScrubFramePreview()
         End If
     End Sub
 
@@ -662,18 +672,33 @@ Public Class DeckLinkPlayerControl
         End If
 
         isScrubberDragging = False
-        Await SeekPlaybackAsync(GetScrubberOffset())
+        scrubPreviewTimer.Stop()
+        QueueScrubFramePreview(GetScrubberOffset(), updateDeckLink:=True)
+        Await WaitForScrubFrameQueueAsync()
     End Sub
 
     Private Sub OnScrubberScrolled(sender As Object, e As EventArgs)
         If scrubberTrackBar.Enabled Then
             SetScrubberPosition(GetScrubberOffset())
+
+            If isScrubberDragging Then
+                ScheduleScrubFramePreview()
+            End If
         End If
     End Sub
 
     Private Async Sub OnScrubberKeyUp(sender As Object, e As KeyEventArgs)
         If scrubberTrackBar.Enabled Then
-            Await SeekPlaybackAsync(GetScrubberOffset())
+            QueueScrubFramePreview(GetScrubberOffset(), updateDeckLink:=True)
+            Await WaitForScrubFrameQueueAsync()
+        End If
+    End Sub
+
+    Private Sub OnScrubPreviewTimerTick(sender As Object, e As EventArgs)
+        scrubPreviewTimer.Stop()
+
+        If scrubberTrackBar.Enabled AndAlso isScrubberDragging Then
+            QueueScrubFramePreview(GetScrubberOffset(), updateDeckLink:=False)
         End If
     End Sub
 
@@ -698,17 +723,61 @@ Public Class DeckLinkPlayerControl
         SetScrubberPosition(position)
     End Sub
 
-    Private Async Function SeekPlaybackAsync(offset As TimeSpan) As Task
+    Private Sub ScheduleScrubFramePreview()
+        scrubPreviewTimer.Stop()
+        scrubPreviewTimer.Start()
+    End Sub
+
+    Private Sub QueueScrubFramePreview(offset As TimeSpan, updateDeckLink As Boolean)
+        pendingScrubFrameOffset = ClampToSelectedDuration(offset)
+        pendingScrubFrameShouldUpdateDeckLink = pendingScrubFrameShouldUpdateDeckLink OrElse updateDeckLink
+
+        If isScrubFrameRenderRunning Then
+            Return
+        End If
+
+        Dim ignored = ProcessQueuedScrubFramePreviewAsync()
+    End Sub
+
+    Private Async Function WaitForScrubFrameQueueAsync() As Task
+        While isScrubFrameRenderRunning OrElse pendingScrubFrameOffset.HasValue
+            Await Task.Delay(25)
+        End While
+    End Function
+
+    Private Async Function ProcessQueuedScrubFramePreviewAsync() As Task
+        If isScrubFrameRenderRunning Then
+            Return
+        End If
+
+        isScrubFrameRenderRunning = True
+
+        Try
+            While pendingScrubFrameOffset.HasValue
+                Dim targetOffset = pendingScrubFrameOffset.Value
+                Dim updateDeckLink = pendingScrubFrameShouldUpdateDeckLink
+                pendingScrubFrameOffset = Nothing
+                pendingScrubFrameShouldUpdateDeckLink = False
+                Await ScrubToFrameAsync(targetOffset, updateDeckLink)
+            End While
+        Catch ex As Exception
+            SetStatus($"Unable to show scrub frame: {ex.Message}", warning:=True)
+        Finally
+            isScrubFrameRenderRunning = False
+
+            If pendingScrubFrameOffset.HasValue Then
+                Dim ignored = ProcessQueuedScrubFramePreviewAsync()
+            End If
+        End Try
+    End Function
+
+    Private Async Function ScrubToFrameAsync(offset As TimeSpan, updateDeckLink As Boolean) As Task
         If isSeekingPlayback Then
             Return
         End If
 
         playbackStartOffset = ClampToSelectedDuration(offset)
         SetScrubberPosition(playbackStartOffset)
-
-        If previewRunner Is Nothing AndAlso outputRunner Is Nothing Then
-            Return
-        End If
 
         Dim filePath = GetSelectedFilePath()
 
@@ -720,12 +789,19 @@ Public Class DeckLinkPlayerControl
         StopPlaybackClock()
 
         Try
-            SetStatus($"Seeking to {FormatDuration(playbackStartOffset)}...")
-            Await StopPlaybackAsync(clearImage:=False)
-            Await StartPreviewAsync(filePath, playbackStartOffset)
-            Await StartOutputAsync(filePath, playbackStartOffset)
-            StartAudioMonitor(filePath, playbackStartOffset)
-            StartPlaybackClock(playbackStartOffset)
+            SetStatus($"Showing frame at {FormatDuration(playbackStartOffset)}...")
+            Await StopPlaybackForScrubAsync(clearImage:=False, stopDeckLinkOutput:=updateDeckLink)
+            Await RenderStillPreviewFrameAsync(filePath, playbackStartOffset)
+            Dim sdiFrameReady = False
+            If updateDeckLink Then
+                sdiFrameReady = Await StartScrubDeckLinkFrameAsync(filePath, playbackStartOffset)
+            End If
+
+            If sdiFrameReady Then
+                SetStatus($"Preview and SDI frame ready at {FormatDuration(playbackStartOffset)}. Press Play to start from here.")
+            Else
+                SetStatus($"Preview frame ready at {FormatDuration(playbackStartOffset)}. Press Play to start from here.")
+            End If
         Finally
             isSeekingPlayback = False
             UpdatePreviewButtons()
@@ -1226,6 +1302,36 @@ Public Class DeckLinkPlayerControl
         End Try
     End Function
 
+    Private Async Function RenderStillPreviewFrameAsync(filePath As String, startOffset As TimeSpan) As Task
+        Dim ffmpegPath = Path.Combine(AppContext.BaseDirectory, "ffmpeg.exe")
+
+        If Not File.Exists(ffmpegPath) Then
+            SetStatus($"ffmpeg.exe not found in {AppContext.BaseDirectory}", warning:=True)
+            Return
+        End If
+
+        Try
+            Dim frame = Await Task.Run(Function() CapturePreviewFrame(ffmpegPath, filePath, startOffset))
+
+            If frame Is Nothing OrElse IsDisposed Then
+                frame?.Dispose()
+                Return
+            End If
+
+            Dim previousImage = previewPictureBox.Image
+            previewPictureBox.Image = frame
+            previewStateLabel.Visible = False
+
+            If previousImage IsNot Nothing Then
+                previousImage.Dispose()
+            End If
+        Catch ex As Exception
+            previewStateLabel.Text = "Frame unavailable"
+            previewStateLabel.Visible = True
+            SetStatus($"Unable to show scrub frame: {ex.Message}", warning:=True)
+        End Try
+    End Function
+
     Private Async Function StopPreviewAsync(Optional clearImage As Boolean = False) As Task
         Dim runner = previewRunner
 
@@ -1295,11 +1401,13 @@ Public Class DeckLinkPlayerControl
             Dim useSdkHelper = File.Exists(helperPath)
             Dim executablePath = If(useSdkHelper, helperPath, ffmpegPath)
             Dim arguments = If(useSdkHelper,
-                BuildSdkDeckLinkOutputArguments(filePath, ffmpegPath, deviceName, outputMode, fileHasAudio, startOffset),
+                BuildSdkDeckLinkOutputArguments(filePath, ffmpegPath, deviceName, outputMode, fileHasAudio, startOffset, startPaused:=False),
                 BuildDeckLinkOutputArguments(filePath, deviceName, outputMode, fileHasAudio, startOffset))
 
             outputRunner = runner
             outputRunnerUsesSdkHelper = useSdkHelper
+            outputRunnerIsScrubHold = False
+            scrubDeckLinkOutputKey = Nothing
             lastDeckLinkOutputMessage = String.Empty
             SetStatus($"Starting SDI: {Path.GetFileName(filePath)} -> {deviceName} {outputMode.DisplayName}")
             runner.Start(executablePath, arguments, AppContext.BaseDirectory)
@@ -1307,7 +1415,66 @@ Public Class DeckLinkPlayerControl
         Catch ex As Exception
             outputRunner = Nothing
             outputRunnerUsesSdkHelper = False
+            outputRunnerIsScrubHold = False
             SetStatus($"Unable to start DeckLink output: {ex.Message}", warning:=True)
+        Finally
+            UpdatePreviewButtons()
+        End Try
+    End Function
+
+    Private Async Function StartScrubDeckLinkFrameAsync(filePath As String, startOffset As TimeSpan) As Task(Of Boolean)
+        Dim ffmpegPath = Path.Combine(AppContext.BaseDirectory, "ffmpeg.exe")
+        Dim helperPath = Path.Combine(AppContext.BaseDirectory, DeckLinkSdkOutputHelperFileName)
+
+        If Not File.Exists(ffmpegPath) Then
+            SetStatus($"ffmpeg.exe not found in {AppContext.BaseDirectory}", warning:=True)
+            Return False
+        End If
+
+        If Not File.Exists(helperPath) Then
+            SetStatus($"DeckLink scrub frame needs {DeckLinkSdkOutputHelperFileName} beside the app.", warning:=True)
+            Return False
+        End If
+
+        Dim deviceName = TryCast(outputDeviceComboBox.SelectedItem, String)
+
+        If String.IsNullOrWhiteSpace(deviceName) OrElse String.Equals(deviceName, NoDeckLinkOutputText, StringComparison.OrdinalIgnoreCase) Then
+            SetStatus("Choose a DeckLink output device first.", warning:=True)
+            Return False
+        End If
+
+        Dim outputMode = TryCast(outputModeComboBox.SelectedItem, DeckLinkOutputMode)
+
+        If outputMode Is Nothing Then
+            SetStatus("Choose a DeckLink output mode first.", warning:=True)
+            Return False
+        End If
+
+        Dim outputKey = BuildScrubDeckLinkOutputKey(filePath, deviceName, outputMode)
+        If outputRunner IsNot Nothing AndAlso outputRunnerIsScrubHold AndAlso String.Equals(scrubDeckLinkOutputKey, outputKey, StringComparison.OrdinalIgnoreCase) Then
+            Return outputRunner.SendLine(FormatFfmpegTimestamp(startOffset))
+        End If
+
+        Await StopOutputAsync()
+
+        Try
+            Dim runner As New FfmpegProcessRunner()
+            Dim arguments = BuildSdkDeckLinkScrubOutputHelperArguments(filePath, ffmpegPath, deviceName, outputMode, startOffset)
+
+            outputRunner = runner
+            outputRunnerUsesSdkHelper = True
+            outputRunnerIsScrubHold = True
+            scrubDeckLinkOutputKey = outputKey
+            lastDeckLinkOutputMessage = String.Empty
+            runner.Start(helperPath, arguments, AppContext.BaseDirectory)
+            Return True
+        Catch ex As Exception
+            outputRunner = Nothing
+            outputRunnerUsesSdkHelper = False
+            outputRunnerIsScrubHold = False
+            scrubDeckLinkOutputKey = Nothing
+            SetStatus($"Unable to show DeckLink scrub frame: {ex.Message}", warning:=True)
+            Return False
         Finally
             UpdatePreviewButtons()
         End Try
@@ -1322,8 +1489,11 @@ Public Class DeckLinkPlayerControl
 
         isStoppingOutput = True
         outputRunner = Nothing
-        Dim forceStop = outputRunnerUsesSdkHelper
+        Dim wasScrubHold = outputRunnerIsScrubHold
+        Dim forceStop = outputRunnerUsesSdkHelper AndAlso Not wasScrubHold
         outputRunnerUsesSdkHelper = False
+        outputRunnerIsScrubHold = False
+        scrubDeckLinkOutputKey = Nothing
         SetStatus("Stopping DeckLink output...")
         UpdatePreviewButtons()
 
@@ -1347,6 +1517,17 @@ Public Class DeckLinkPlayerControl
         StopPlaybackClock()
         TearDownAudioMonitor(fast:=True)
         Await StopOutputAsync()
+        Await StopPreviewAsync(clearImage)
+    End Function
+
+    Private Async Function StopPlaybackForScrubAsync(Optional clearImage As Boolean = False, Optional stopDeckLinkOutput As Boolean = True) As Task
+        StopPlaybackClock()
+        TearDownAudioMonitor(fast:=True)
+
+        If stopDeckLinkOutput AndAlso Not outputRunnerIsScrubHold Then
+            Await StopOutputAsync()
+        End If
+
         Await StopPreviewAsync(clearImage)
     End Function
 
@@ -1402,10 +1583,13 @@ Public Class DeckLinkPlayerControl
         Return builder.ToString()
     End Function
 
-    Private Shared Function BuildSdkDeckLinkOutputArguments(filePath As String, ffmpegPath As String, deviceName As String, outputMode As DeckLinkOutputMode, hasAudioStream As Boolean, startOffset As TimeSpan) As String
+    Private Shared Function BuildScrubDeckLinkOutputKey(filePath As String, deviceName As String, outputMode As DeckLinkOutputMode) As String
+        Return $"{Path.GetFullPath(filePath)}|{deviceName}|{outputMode.FormatCode}|{outputMode.Width}x{outputMode.Height}|{outputMode.FrameRate}"
+    End Function
+
+    Private Shared Function BuildSdkDeckLinkOutputArguments(filePath As String, ffmpegPath As String, deviceName As String, outputMode As DeckLinkOutputMode, hasAudioStream As Boolean, startOffset As TimeSpan, startPaused As Boolean) As String
         Dim effectiveOffset = If(IsImageFile(filePath), TimeSpan.Zero, startOffset)
-        Dim videoFilterPrefix = If(effectiveOffset > TimeSpan.Zero, $"trim=start={FormatFilterSeconds(effectiveOffset)},setpts=PTS-STARTPTS,", String.Empty)
-        Dim videoFilter = $"{videoFilterPrefix}scale={outputMode.Width}:{outputMode.Height}:force_original_aspect_ratio=decrease,pad={outputMode.Width}:{outputMode.Height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps={outputMode.FrameRate},setpts=N/({outputMode.FrameRate}*TB)"
+        Dim videoFilter = $"scale={outputMode.Width}:{outputMode.Height}:force_original_aspect_ratio=decrease,pad={outputMode.Width}:{outputMode.Height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps={outputMode.FrameRate},setpts=N/({outputMode.FrameRate}*TB)"
         Dim builder As New StringBuilder()
 
         builder.Append("play ")
@@ -1419,15 +1603,44 @@ Public Class DeckLinkPlayerControl
         builder.Append("--audio-channels 2 ")
         builder.Append("--preroll 0.5 ")
         builder.Append("--video-filter ").Append(Quote(videoFilter)).Append(" ")
-        builder.Append("--loop ")
+
+        If effectiveOffset > TimeSpan.Zero Then
+            builder.Append("--start-offset ").Append(FormatFfmpegTimestamp(effectiveOffset)).Append(" ")
+        End If
+
+        If startPaused Then
+            builder.Append("--start-paused ")
+        Else
+            builder.Append("--loop ")
+        End If
 
         If Not hasAudioStream Then
             builder.Append("--no-audio ")
-        ElseIf effectiveOffset > TimeSpan.Zero Then
-            builder.Append("--audio-filter ").Append(Quote($"atrim=start={FormatFilterSeconds(effectiveOffset)},asetpts=PTS-STARTPTS")).Append(" ")
         End If
 
         Return builder.ToString().TrimEnd()
+    End Function
+
+    Private Shared Function BuildSdkDeckLinkScrubOutputHelperArguments(filePath As String, ffmpegPath As String, deviceName As String, outputMode As DeckLinkOutputMode, startOffset As TimeSpan) As String
+        Dim effectiveOffset = If(IsImageFile(filePath), TimeSpan.Zero, startOffset)
+        Dim videoFilter = $"scale={outputMode.Width}:{outputMode.Height}:force_original_aspect_ratio=decrease,pad={outputMode.Width}:{outputMode.Height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps={outputMode.FrameRate},setpts=N/({outputMode.FrameRate}*TB)"
+        Dim builder As New StringBuilder()
+
+        builder.Append("scrub-output-helper ")
+        builder.Append("--ffmpeg-path ").Append(Quote(ffmpegPath)).Append(" ")
+        builder.Append("--input ").Append(Quote(filePath)).Append(" ")
+        builder.Append("--device ").Append(Quote(deviceName)).Append(" ")
+        builder.Append("--format-code ").Append(Quote(outputMode.FormatCode)).Append(" ")
+        builder.Append("--video-size ").Append(Quote($"{outputMode.Width}x{outputMode.Height}")).Append(" ")
+        builder.Append("--frame-rate ").Append(Quote(outputMode.FrameRate)).Append(" ")
+        builder.Append("--pixel-format uyvy422 ")
+        builder.Append("--audio-channels 2 ")
+        builder.Append("--preroll 0.5 ")
+        builder.Append("--video-filter ").Append(Quote(videoFilter)).Append(" ")
+        builder.Append("--start-offset ").Append(FormatFfmpegTimestamp(effectiveOffset)).Append(" ")
+        builder.Append("--no-audio")
+
+        Return builder.ToString()
     End Function
 
     Private Shared Function BuildDeckLinkOutputArguments(filePath As String, deviceName As String, outputMode As DeckLinkOutputMode, hasAudioStream As Boolean, startOffset As TimeSpan) As String
@@ -1515,6 +1728,84 @@ Public Class DeckLinkPlayerControl
         builder.Append("-map ").Append(Quote("[out]")).Append(" ")
         builder.Append("-flush_packets 1 -c:v mjpeg -q:v 6 -f mjpeg pipe:1")
 
+        Return builder.ToString()
+    End Function
+
+    Private Shared Function CapturePreviewFrame(ffmpegPath As String, filePath As String, startOffset As TimeSpan) As Bitmap
+        Dim startInfo As New ProcessStartInfo() With {
+            .FileName = ffmpegPath,
+            .Arguments = BuildStillPreviewFrameArguments(filePath, startOffset),
+            .WorkingDirectory = AppContext.BaseDirectory,
+            .UseShellExecute = False,
+            .RedirectStandardOutput = True,
+            .RedirectStandardError = True,
+            .CreateNoWindow = True
+        }
+
+        Using process As New Process() With {.StartInfo = startInfo}
+            If Not process.Start() Then
+                Return Nothing
+            End If
+
+            Using memory As New MemoryStream()
+                Dim outputTask = process.StandardOutput.BaseStream.CopyToAsync(memory)
+                Dim errorTask = process.StandardError.ReadToEndAsync()
+
+                If Not process.WaitForExit(5000) Then
+                    process.Kill(True)
+
+                    Try
+                        process.WaitForExit(1000)
+                    Catch
+                    End Try
+
+                    Try
+                        outputTask.GetAwaiter().GetResult()
+                    Catch
+                    End Try
+
+                    Try
+                        errorTask.GetAwaiter().GetResult()
+                    Catch
+                    End Try
+
+                    Return Nothing
+                End If
+
+                outputTask.GetAwaiter().GetResult()
+                errorTask.GetAwaiter().GetResult()
+
+                If process.ExitCode <> 0 OrElse memory.Length = 0 Then
+                    Return Nothing
+                End If
+
+                memory.Position = 0
+
+                Using sourceImage = Image.FromStream(memory)
+                    Return New Bitmap(sourceImage)
+                End Using
+            End Using
+        End Using
+    End Function
+
+    Private Shared Function BuildStillPreviewFrameArguments(filePath As String, startOffset As TimeSpan) As String
+        Dim previewWidth = 900
+        Dim previewHeight = 540
+        Dim builder As New StringBuilder("-hide_banner -loglevel error ")
+
+        If startOffset > TimeSpan.Zero AndAlso Not IsImageFile(filePath) Then
+            builder.Append("-ss ").Append(FormatFfmpegTimestamp(startOffset)).Append(" ")
+        End If
+
+        If IsImageFile(filePath) Then
+            builder.Append("-loop 1 ")
+        End If
+
+        builder.Append("-i ").Append(Quote(filePath)).Append(" ")
+        builder.Append("-map 0:v:0 ")
+        builder.Append("-frames:v 1 ")
+        builder.Append("-vf ").Append(Quote($"scale={previewWidth}:{previewHeight}:force_original_aspect_ratio=decrease,pad={previewWidth}:{previewHeight}:(ow-iw)/2:(oh-ih)/2,format=yuvj420p")).Append(" ")
+        builder.Append("-an -c:v mjpeg -q:v 3 -f image2pipe pipe:1")
         Return builder.ToString()
     End Function
 
@@ -1633,6 +1924,8 @@ Public Class DeckLinkPlayerControl
 
         outputRunner = Nothing
         outputRunnerUsesSdkHelper = False
+        outputRunnerIsScrubHold = False
+        scrubDeckLinkOutputKey = Nothing
         Dim finalMessage = If(exitCode = 0,
             "DeckLink output stopped.",
             If(String.IsNullOrWhiteSpace(lastDeckLinkOutputMessage),
@@ -1677,10 +1970,11 @@ Public Class DeckLinkPlayerControl
         Dim hasSelectedFile = Not String.IsNullOrWhiteSpace(GetSelectedFilePath())
         Dim isPreviewRunning = previewRunner IsNot Nothing
         Dim isOutputRunning = outputRunner IsNot Nothing
+        Dim isBlockingOutputRunning = isOutputRunning AndAlso Not outputRunnerIsScrubHold
         Dim hasOutputDevice = outputDeviceComboBox.SelectedItem IsNot Nothing AndAlso
             Not String.Equals(TryCast(outputDeviceComboBox.SelectedItem, String), NoDeckLinkOutputText, StringComparison.OrdinalIgnoreCase)
 
-        previewButton.Enabled = hasSelectedFile AndAlso hasOutputDevice AndAlso Not isLoadingFiles AndAlso Not isPreviewRunning AndAlso Not isOutputRunning AndAlso Not isStoppingPreview AndAlso Not isStoppingOutput AndAlso Not isSeekingPlayback
+        previewButton.Enabled = hasSelectedFile AndAlso hasOutputDevice AndAlso Not isLoadingFiles AndAlso Not isPreviewRunning AndAlso Not isBlockingOutputRunning AndAlso Not isStoppingPreview AndAlso Not isStoppingOutput AndAlso Not isSeekingPlayback
         stopPreviewButton.Enabled = (isPreviewRunning OrElse isOutputRunning) AndAlso Not isStoppingPreview AndAlso Not isStoppingOutput AndAlso Not isSeekingPlayback
         outputDeviceComboBox.Enabled = Not isOutputRunning AndAlso Not isStoppingOutput AndAlso Not isSeekingPlayback
         outputModeComboBox.Enabled = Not isOutputRunning AndAlso Not isStoppingOutput AndAlso Not isSeekingPlayback
@@ -1820,7 +2114,9 @@ Public Class DeckLinkPlayerControl
             previewRunner = Nothing
             outputRunner = Nothing
             audioMonitorRunner = Nothing
+            scrubPreviewTimer.Stop()
             playbackPositionTimer.Stop()
+            scrubPreviewTimer.Dispose()
             playbackPositionTimer.Dispose()
 
             If runner IsNot Nothing Then
