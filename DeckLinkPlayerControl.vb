@@ -639,7 +639,7 @@ Public Class DeckLinkPlayerControl
     End Sub
 
     Private Async Sub OnStopPreviewClicked(sender As Object, e As EventArgs)
-        Await StopPlaybackAsync(clearImage:=False)
+        Await StopPlaybackAsync(clearImage:=True)
     End Sub
 
     Private Sub OnOutputSelectionChanged(sender As Object, e As EventArgs)
@@ -1266,7 +1266,7 @@ Public Class DeckLinkPlayerControl
         playbackStartOffset = ClampToSelectedDuration(playbackStartOffset)
         SetScrubberPosition(playbackStartOffset)
 
-        Await StopPlaybackAsync(clearImage:=True)
+        Await StopPlaybackAsync(clearImage:=False)
         Await StartPreviewAsync(filePath, playbackStartOffset)
         Await StartOutputAsync(filePath, playbackStartOffset)
         StartAudioMonitor(filePath, playbackStartOffset)
@@ -1274,7 +1274,7 @@ Public Class DeckLinkPlayerControl
     End Function
 
     Private Async Function StartPreviewAsync(filePath As String, startOffset As TimeSpan) As Task
-        Await StopPreviewAsync(clearImage:=True)
+        Await StopPreviewAsync(clearImage:=False)
 
         Dim ffmpegPath = Path.Combine(AppContext.BaseDirectory, "ffmpeg.exe")
 
@@ -1489,8 +1489,7 @@ Public Class DeckLinkPlayerControl
 
         isStoppingOutput = True
         outputRunner = Nothing
-        Dim wasScrubHold = outputRunnerIsScrubHold
-        Dim forceStop = outputRunnerUsesSdkHelper AndAlso Not wasScrubHold
+        Dim forceStop = outputRunnerUsesSdkHelper
         outputRunnerUsesSdkHelper = False
         outputRunnerIsScrubHold = False
         scrubDeckLinkOutputKey = Nothing
@@ -1610,8 +1609,6 @@ Public Class DeckLinkPlayerControl
 
         If startPaused Then
             builder.Append("--start-paused ")
-        Else
-            builder.Append("--loop ")
         End If
 
         If Not hasAudioStream Then
@@ -1653,7 +1650,7 @@ Public Class DeckLinkPlayerControl
         If IsImageFile(filePath) Then
             builder.Append("-loop 1 -framerate ").Append(outputMode.FrameRate).Append(" ")
         Else
-            builder.Append("-stream_loop -1 -readrate 1 -readrate_initial_burst 2 -readrate_catchup 1.5 ")
+            builder.Append("-readrate 1 -readrate_initial_burst 2 -readrate_catchup 1.5 ")
         End If
 
         If startOffset > TimeSpan.Zero AndAlso Not IsImageFile(filePath) Then
@@ -1713,7 +1710,7 @@ Public Class DeckLinkPlayerControl
         If IsImageFile(filePath) Then
             builder.Append("-loop 1 -framerate 25 ")
         Else
-            builder.Append("-stream_loop -1 -re ")
+            builder.Append("-re ")
         End If
 
         If startOffset > TimeSpan.Zero AndAlso Not IsImageFile(filePath) Then
