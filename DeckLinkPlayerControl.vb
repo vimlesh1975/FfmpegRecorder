@@ -1497,12 +1497,8 @@ Public Class DeckLinkPlayerControl
         UpdatePreviewButtons()
 
         Try
-            If forceStop Then
-                Await Task.Run(Sub() runner.Dispose())
-            Else
-                Await Task.Run(Sub() runner.Stop())
-                runner.Dispose()
-            End If
+            Await Task.Run(Sub() runner.Stop())
+            runner.Dispose()
             SetStatus("DeckLink output stopped.")
         Catch ex As Exception
             SetStatus($"DeckLink output stop failed: {ex.Message}", warning:=True)
