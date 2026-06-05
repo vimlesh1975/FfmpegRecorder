@@ -2193,6 +2193,10 @@ Partial Public Class RecorderControl
     End Sub
 
     Private Sub StartIdlePreview()
+        If hasDisposedResources OrElse IsDisposed Then
+            Return
+        End If
+
         If captureRunner IsNot Nothing OrElse previewRunner IsNot Nothing OrElse recordingPreviewReader IsNot Nothing Then
             Return
         End If
@@ -2280,7 +2284,7 @@ Partial Public Class RecorderControl
 
         Try
             audioMonitorRunner = New FfmpegProcessRunner()
-            audioMonitorRunner.Start(ffplayPath, BuildAudioMonitorArguments(audioMonitorPort, options.Channels), AppContext.BaseDirectory)
+            audioMonitorRunner.Start(ffplayPath, BuildAudioMonitorArguments(audioMonitorPort, 2), AppContext.BaseDirectory)
             StopAudioMonitorRetry()
             AppendLog("Audio monitor started.")
             Return True
@@ -2294,8 +2298,7 @@ Partial Public Class RecorderControl
     End Function
 
     Private Function BuildAudioMonitorArguments(audioMonitorPort As Integer, channels As Integer) As String
-        Dim channelLayout = GetAudioChannelLayout(channels)
-        Return $"-hide_banner -loglevel warning -nostats -nodisp -fflags nobuffer -flags low_delay -probesize 32 -analyzeduration 0 -sync ext -volume 100 -f s16le -sample_rate 48000 -ch_layout {channelLayout} -i {Quote($"tcp://127.0.0.1:{audioMonitorPort}")}"
+        Return $"-hide_banner -loglevel warning -nostats -nodisp -sync audio -volume 100 -i {Quote($"tcp://127.0.0.1:{audioMonitorPort}")}"
     End Function
 
     Private Function GetAudioChannelLayout(channels As Integer) As String
@@ -2643,6 +2646,11 @@ Partial Public Class RecorderControl
     End Function
 
     Private Sub ScheduleAudioMonitorRetry()
+        If hasDisposedResources OrElse IsDisposed Then
+            StopAudioMonitorRetry()
+            Return
+        End If
+
         If Not ShouldRetryAudioMonitor() Then
             StopAudioMonitorRetry()
             Return
@@ -2750,8 +2758,15 @@ Partial Public Class RecorderControl
     End Sub
 
     Private Sub previewRunner_Exited(exitCode As Integer) Handles previewRunner.Exited
+        If hasDisposedResources OrElse IsDisposed Then
+            Return
+        End If
+
         If InvokeRequired Then
-            BeginInvoke(New Action(Of Integer)(AddressOf previewRunner_Exited), exitCode)
+            Try
+                BeginInvoke(New Action(Of Integer)(AddressOf previewRunner_Exited), exitCode)
+            Catch
+            End Try
             Return
         End If
 
@@ -2768,8 +2783,15 @@ Partial Public Class RecorderControl
     End Sub
 
     Private Sub recordingPreviewReader_Exited() Handles recordingPreviewReader.Exited
+        If hasDisposedResources OrElse IsDisposed Then
+            Return
+        End If
+
         If InvokeRequired Then
-            BeginInvoke(New Action(AddressOf recordingPreviewReader_Exited))
+            Try
+                BeginInvoke(New Action(AddressOf recordingPreviewReader_Exited))
+            Catch
+            End Try
             Return
         End If
 
@@ -2797,8 +2819,15 @@ Partial Public Class RecorderControl
     End Sub
 
     Private Sub audioMonitorRunner_Exited(exitCode As Integer) Handles audioMonitorRunner.Exited
+        If hasDisposedResources OrElse IsDisposed Then
+            Return
+        End If
+
         If InvokeRequired Then
-            BeginInvoke(New Action(Of Integer)(AddressOf audioMonitorRunner_Exited), exitCode)
+            Try
+                BeginInvoke(New Action(Of Integer)(AddressOf audioMonitorRunner_Exited), exitCode)
+            Catch
+            End Try
             Return
         End If
 
@@ -2815,8 +2844,15 @@ Partial Public Class RecorderControl
     End Sub
 
     Private Sub captureRunner_Exited(exitCode As Integer) Handles captureRunner.Exited
+        If hasDisposedResources OrElse IsDisposed Then
+            Return
+        End If
+
         If InvokeRequired Then
-            BeginInvoke(New Action(Of Integer)(AddressOf captureRunner_Exited), exitCode)
+            Try
+                BeginInvoke(New Action(Of Integer)(AddressOf captureRunner_Exited), exitCode)
+            Catch
+            End Try
             Return
         End If
 
@@ -2875,17 +2911,15 @@ Partial Public Class RecorderControl
         ReleaseReservedDevice()
         StopRecordingPreviewRetry()
         TearDownRecordingPreview()
-        TearDownAudioMonitor()
+        TearDownAudioMonitor(fast:=True)
 
         If previewRunner IsNot Nothing Then
             Dim runner = previewRunner
             previewRunner = Nothing
-            runner.Stop()
             runner.Dispose()
         End If
 
         If captureRunner IsNot Nothing Then
-            captureRunner.Stop()
             TearDownCaptureRunner()
         End If
 

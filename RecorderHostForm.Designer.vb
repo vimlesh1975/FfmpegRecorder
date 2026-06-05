@@ -42,6 +42,13 @@ Partial Class RecorderHostForm
     Private totalCpuValueLabel As Label
     Private contentLayout As TableLayoutPanel
     Private cameraGrid As TableLayoutPanel
+    Private sideTabControl As TabControl
+    Private streamTabPage As TabPage
+    Private deckLinkPlayerTabPage As TabPage
+    Private deckLinkPlayerPanel As TableLayoutPanel
+    Private deckLinkPlayerTitleLabel As Label
+    Private deckLinkPlayerHintLabel As Label
+    Private deckLinkPlayerControl As DeckLinkPlayerControl
     Private streamGroupBox As GroupBox
     Private streamRecorderControl As StreamRecorderControl
     Private cam1GroupBox As GroupBox
@@ -84,6 +91,13 @@ Partial Class RecorderHostForm
         totalCpuValueLabel = New Label()
         contentLayout = New TableLayoutPanel()
         cameraGrid = New TableLayoutPanel()
+        sideTabControl = New TabControl()
+        streamTabPage = New TabPage()
+        deckLinkPlayerTabPage = New TabPage()
+        deckLinkPlayerPanel = New TableLayoutPanel()
+        deckLinkPlayerTitleLabel = New Label()
+        deckLinkPlayerHintLabel = New Label()
+        deckLinkPlayerControl = New DeckLinkPlayerControl()
         streamGroupBox = New GroupBox()
         streamRecorderControl = New StreamRecorderControl()
         cam1GroupBox = New GroupBox()
@@ -100,6 +114,10 @@ Partial Class RecorderHostForm
         commonPanel.SuspendLayout()
         contentLayout.SuspendLayout()
         cameraGrid.SuspendLayout()
+        sideTabControl.SuspendLayout()
+        streamTabPage.SuspendLayout()
+        deckLinkPlayerTabPage.SuspendLayout()
+        deckLinkPlayerPanel.SuspendLayout()
         streamGroupBox.SuspendLayout()
         cam1GroupBox.SuspendLayout()
         cam2GroupBox.SuspendLayout()
@@ -107,13 +125,14 @@ Partial Class RecorderHostForm
         cam4GroupBox.SuspendLayout()
         SuspendLayout()
         AutoScaleMode = AutoScaleMode.Font
-        ClientSize = New Size(1480, 1020)
+        ClientSize = New Size(1920, 1080)
         FormBorderStyle = FormBorderStyle.Sizable
         MaximizeBox = True
         MinimizeBox = True
         Name = "RecorderHostForm"
         StartPosition = FormStartPosition.CenterScreen
         Text = "4 Channel DeckLink Recorder"
+        WindowState = FormWindowState.Maximized
         mainLayout.ColumnCount = 1
         mainLayout.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 100.0F))
         mainLayout.Controls.Add(commonGroupBox, 0, 0)
@@ -323,14 +342,14 @@ Partial Class RecorderHostForm
         contentLayout.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 1120.0F))
         contentLayout.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 100.0F))
         contentLayout.Controls.Add(cameraGrid, 0, 0)
-        contentLayout.Controls.Add(streamGroupBox, 1, 0)
+        contentLayout.Controls.Add(sideTabControl, 1, 0)
         contentLayout.Dock = DockStyle.Fill
         contentLayout.Location = New Point(0, 140)
         contentLayout.Margin = New Padding(0)
         contentLayout.Name = "contentLayout"
         contentLayout.RowCount = 1
         contentLayout.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
-        contentLayout.Size = New Size(1480, 880)
+        contentLayout.Size = New Size(1920, 940)
         cameraGrid.ColumnCount = 2
         cameraGrid.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 50.0F))
         cameraGrid.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 50.0F))
@@ -346,22 +365,79 @@ Partial Class RecorderHostForm
         cameraGrid.RowCount = 2
         cameraGrid.RowStyles.Add(New RowStyle(SizeType.Percent, 50.0F))
         cameraGrid.RowStyles.Add(New RowStyle(SizeType.Percent, 50.0F))
-        cameraGrid.Size = New Size(1120, 880)
+        cameraGrid.Size = New Size(1120, 940)
+        sideTabControl.Controls.Add(deckLinkPlayerTabPage)
+        sideTabControl.Controls.Add(streamTabPage)
+        sideTabControl.Dock = DockStyle.Fill
+        sideTabControl.Font = New Font("Segoe UI", 9.0F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
+        sideTabControl.Location = New Point(1128, 8)
+        sideTabControl.Margin = New Padding(4)
+        sideTabControl.Name = "sideTabControl"
+        sideTabControl.Padding = New Point(12, 5)
+        sideTabControl.SelectedIndex = 0
+        sideTabControl.Size = New Size(792, 932)
+        streamTabPage.Controls.Add(streamGroupBox)
+        streamTabPage.Location = New Point(4, 28)
+        streamTabPage.Margin = New Padding(0)
+        streamTabPage.Name = "streamTabPage"
+        streamTabPage.Padding = New Padding(0)
+        streamTabPage.Size = New Size(784, 900)
+        streamTabPage.Text = "Stream URL"
+        deckLinkPlayerTabPage.Controls.Add(deckLinkPlayerControl)
+        deckLinkPlayerTabPage.Location = New Point(4, 28)
+        deckLinkPlayerTabPage.Margin = New Padding(0)
+        deckLinkPlayerTabPage.Name = "deckLinkPlayerTabPage"
+        deckLinkPlayerTabPage.Padding = New Padding(4)
+        deckLinkPlayerTabPage.Size = New Size(784, 900)
+        deckLinkPlayerTabPage.Text = "DeckLink Player"
+        deckLinkPlayerControl.Dock = DockStyle.Fill
+        deckLinkPlayerControl.Location = New Point(4, 4)
+        deckLinkPlayerControl.Margin = New Padding(0)
+        deckLinkPlayerControl.Name = "deckLinkPlayerControl"
+        deckLinkPlayerControl.Size = New Size(776, 892)
+        deckLinkPlayerPanel.ColumnCount = 1
+        deckLinkPlayerPanel.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 100.0F))
+        deckLinkPlayerPanel.Controls.Add(deckLinkPlayerTitleLabel, 0, 0)
+        deckLinkPlayerPanel.Controls.Add(deckLinkPlayerHintLabel, 0, 1)
+        deckLinkPlayerPanel.Dock = DockStyle.Fill
+        deckLinkPlayerPanel.Location = New Point(8, 8)
+        deckLinkPlayerPanel.Margin = New Padding(0)
+        deckLinkPlayerPanel.Name = "deckLinkPlayerPanel"
+        deckLinkPlayerPanel.Padding = New Padding(18)
+        deckLinkPlayerPanel.RowCount = 3
+        deckLinkPlayerPanel.RowStyles.Add(New RowStyle(SizeType.AutoSize))
+        deckLinkPlayerPanel.RowStyles.Add(New RowStyle(SizeType.AutoSize))
+        deckLinkPlayerPanel.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
+        deckLinkPlayerPanel.Size = New Size(318, 814)
+        deckLinkPlayerTitleLabel.AutoSize = True
+        deckLinkPlayerTitleLabel.Dock = DockStyle.Top
+        deckLinkPlayerTitleLabel.Font = New Font("Segoe UI", 14.0F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
+        deckLinkPlayerTitleLabel.Margin = New Padding(0, 0, 0, 10)
+        deckLinkPlayerTitleLabel.Name = "deckLinkPlayerTitleLabel"
+        deckLinkPlayerTitleLabel.Size = New Size(282, 25)
+        deckLinkPlayerTitleLabel.Text = "DeckLink Player"
+        deckLinkPlayerHintLabel.AutoSize = False
+        deckLinkPlayerHintLabel.Dock = DockStyle.Top
+        deckLinkPlayerHintLabel.Font = New Font("Segoe UI", 9.0F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
+        deckLinkPlayerHintLabel.Margin = New Padding(0)
+        deckLinkPlayerHintLabel.Name = "deckLinkPlayerHintLabel"
+        deckLinkPlayerHintLabel.Size = New Size(282, 72)
+        deckLinkPlayerHintLabel.Text = "Player tab is ready. DeckLink playout controls can be added here without changing the stream recorder layout."
         streamGroupBox.Controls.Add(streamRecorderControl)
         streamGroupBox.Dock = DockStyle.Fill
         streamGroupBox.Font = New Font("Segoe UI", 9.0F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
-        streamGroupBox.Location = New Point(1128, 8)
-        streamGroupBox.Margin = New Padding(8, 8, 10, 10)
+        streamGroupBox.Location = New Point(0, 0)
+        streamGroupBox.Margin = New Padding(0)
         streamGroupBox.Name = "streamGroupBox"
         streamGroupBox.Padding = New Padding(8, 6, 8, 8)
-        streamGroupBox.Size = New Size(342, 862)
+        streamGroupBox.Size = New Size(784, 900)
         streamGroupBox.TabStop = False
         streamGroupBox.Text = "STREAM / URL"
         streamRecorderControl.Dock = DockStyle.Fill
         streamRecorderControl.Location = New Point(8, 22)
         streamRecorderControl.Margin = New Padding(0)
         streamRecorderControl.Name = "streamRecorderControl"
-        streamRecorderControl.Size = New Size(326, 832)
+        streamRecorderControl.Size = New Size(768, 870)
         cam1GroupBox.Controls.Add(leftRecorderControl)
         cam1GroupBox.Dock = DockStyle.Fill
         cam1GroupBox.Font = New Font("Segoe UI", 9.0F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
@@ -440,6 +516,11 @@ Partial Class RecorderHostForm
         commonPanel.PerformLayout()
         contentLayout.ResumeLayout(False)
         cameraGrid.ResumeLayout(False)
+        sideTabControl.ResumeLayout(False)
+        streamTabPage.ResumeLayout(False)
+        deckLinkPlayerTabPage.ResumeLayout(False)
+        deckLinkPlayerPanel.ResumeLayout(False)
+        deckLinkPlayerPanel.PerformLayout()
         streamGroupBox.ResumeLayout(False)
         cam1GroupBox.ResumeLayout(False)
         cam2GroupBox.ResumeLayout(False)

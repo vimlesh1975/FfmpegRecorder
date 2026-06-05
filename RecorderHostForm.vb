@@ -40,6 +40,12 @@ Partial Public Class RecorderHostForm
     Private suppressRecordingDirectoryEvents As Boolean
     Private isDarkModeEnabled As Boolean = True
 
+    Private Shared ReadOnly Property AudioListenSettingsFilePath As String
+        Get
+            Return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "FfmpegRecorder", "audio-listen.txt")
+        End Get
+    End Property
+
     Public Sub New()
         InitializeComponent()
         OrganizeCommonPanel()
@@ -67,6 +73,7 @@ Partial Public Class RecorderHostForm
         AddHandler recordingDirectoryTextBox.KeyDown, AddressOf OnRecordingDirectoryKeyDown
         AddHandler Load, AddressOf RecorderHostForm_Load
         AddHandler SizeChanged, AddressOf RecorderHostForm_SizeChanged
+        AddHandler FormClosing, AddressOf RecorderHostForm_FormClosing
 
         profileComboBox.Items.Clear()
         profileComboBox.Items.AddRange(leftRecorderControl.AvailableProfileNames.ToArray())
@@ -75,8 +82,8 @@ Partial Public Class RecorderHostForm
         palAspectComboBox.Items.Clear()
         palAspectComboBox.Items.AddRange(leftRecorderControl.AvailablePalAspectNames.ToArray())
 
-        audioListenComboBox.Items.AddRange(New Object() {"Off", "CAM1", "CAM2", "CAM3", "CAM4"})
-        audioListenComboBox.SelectedItem = "CAM1"
+        audioListenComboBox.Items.AddRange(New Object() {"Off", "CAM1", "CAM2", "CAM3", "CAM4", "PLAYER"})
+        audioListenComboBox.SelectedItem = GetSavedAudioListenSelection()
         InitializeSharedDeckLinkControls()
         InitializeRecordingDirectoryControls()
         RefreshRecordingDirectoryDisplay()
@@ -362,7 +369,25 @@ Partial Public Class RecorderHostForm
 
     Private Sub StyleStreamSection(baseColor As Color)
         Dim foreground = If(isDarkModeEnabled, Color.FromArgb(236, 239, 242), Color.FromArgb(52, 60, 68))
+        Dim tabBackground = If(isDarkModeEnabled, Color.FromArgb(35, 38, 43), Color.FromArgb(244, 240, 232))
+        Dim playerPanelBackground = If(isDarkModeEnabled, Color.FromArgb(48, 52, 58), Color.FromArgb(250, 247, 240))
+        Dim hintForeground = If(isDarkModeEnabled, Color.FromArgb(184, 191, 198), Color.FromArgb(88, 98, 108))
 
+        sideTabControl.BackColor = baseColor
+        sideTabControl.ForeColor = foreground
+        streamTabPage.BackColor = tabBackground
+        streamTabPage.ForeColor = foreground
+        streamTabPage.UseVisualStyleBackColor = False
+        deckLinkPlayerTabPage.BackColor = tabBackground
+        deckLinkPlayerTabPage.ForeColor = foreground
+        deckLinkPlayerTabPage.UseVisualStyleBackColor = False
+        deckLinkPlayerPanel.BackColor = playerPanelBackground
+        deckLinkPlayerPanel.ForeColor = foreground
+        deckLinkPlayerTitleLabel.BackColor = playerPanelBackground
+        deckLinkPlayerTitleLabel.ForeColor = foreground
+        deckLinkPlayerHintLabel.BackColor = playerPanelBackground
+        deckLinkPlayerHintLabel.ForeColor = hintForeground
+        deckLinkPlayerControl.DarkModeEnabled = isDarkModeEnabled
         streamGroupBox.BackColor = baseColor
         streamGroupBox.ForeColor = foreground
         streamRecorderControl.BackColor = If(isDarkModeEnabled, LightenColor(baseColor, 8), LightenColor(baseColor, 10))
@@ -425,6 +450,37 @@ Partial Public Class RecorderHostForm
         UpdateCommonHeaderHeight()
     End Sub
 
+    Private Sub RecorderHostForm_FormClosing(sender As Object, e As FormClosingEventArgs)
+        ShutdownChildProcesses()
+    End Sub
+
+    Private Sub ShutdownChildProcesses()
+        Try
+            systemCpuTimer.Stop()
+            recordingDriveFreeSpaceTimer.Stop()
+        Catch
+        End Try
+
+        Try
+            For Each recorderControl In GetRecorderControls()
+                recorderControl.Dispose()
+            Next
+        Catch
+        End Try
+
+        Try
+            streamRecorderControl.Dispose()
+        Catch
+        End Try
+
+        Try
+            deckLinkPlayerControl.Dispose()
+        Catch
+        End Try
+
+        Program.StopBundledHelperProcesses()
+    End Sub
+
     Private Sub OnSystemCpuTimerTick(sender As Object, e As EventArgs)
         UpdateSystemCpuLabel()
     End Sub
@@ -443,6 +499,7 @@ Partial Public Class RecorderHostForm
     End Sub
 
     Private Sub OnAudioListenSelectionChanged(sender As Object, e As EventArgs)
+        SaveAudioListenSelection(If(TryCast(audioListenComboBox.SelectedItem, String), "Off"))
         ApplyAudioListenSelection()
     End Sub
 
@@ -654,6 +711,7 @@ Partial Public Class RecorderHostForm
             Dim selectedDirectoryPath = If(String.IsNullOrWhiteSpace(directoryPath), RecordingDirectorySettings.GetRecordingDirectory(), directoryPath)
             recordingDirectoryTextBox.Text = selectedDirectoryPath
             UpdateRecordingDriveFreeSpaceLabel(selectedDirectoryPath)
+            deckLinkPlayerControl.RefreshFromRecordingDirectory()
         Finally
             suppressRecordingDirectoryEvents = False
         End Try
@@ -686,6 +744,35 @@ Partial Public Class RecorderHostForm
         End Try
     End Function
 
+    Private Function GetSavedAudioListenSelection() As String
+        Const defaultSelection As String = "CAM1"
+
+        Try
+            If File.Exists(AudioListenSettingsFilePath) Then
+                Dim savedSelection = File.ReadAllText(AudioListenSettingsFilePath).Trim()
+
+                If audioListenComboBox.Items.Contains(savedSelection) Then
+                    Return savedSelection
+                End If
+            End If
+        Catch
+        End Try
+
+        Return defaultSelection
+    End Function
+
+    Private Sub SaveAudioListenSelection(selectionName As String)
+        If String.IsNullOrWhiteSpace(selectionName) Then
+            Return
+        End If
+
+        Try
+            Directory.CreateDirectory(Path.GetDirectoryName(AudioListenSettingsFilePath))
+            File.WriteAllText(AudioListenSettingsFilePath, selectionName)
+        Catch
+        End Try
+    End Sub
+
     Private Sub ApplyAudioListenSelection()
         Dim selectedCameraName = If(TryCast(audioListenComboBox.SelectedItem, String), "Off")
 
@@ -693,6 +780,7 @@ Partial Public Class RecorderHostForm
         rightRecorderControl.SpeakerMonitorEnabled = String.Equals(selectedCameraName, "CAM2", StringComparison.OrdinalIgnoreCase)
         thirdRecorderControl.SpeakerMonitorEnabled = String.Equals(selectedCameraName, "CAM3", StringComparison.OrdinalIgnoreCase)
         fourthRecorderControl.SpeakerMonitorEnabled = String.Equals(selectedCameraName, "CAM4", StringComparison.OrdinalIgnoreCase)
+        deckLinkPlayerControl.SpeakerMonitorEnabled = String.Equals(selectedCameraName, "PLAYER", StringComparison.OrdinalIgnoreCase)
     End Sub
 
     Private Sub SyncSharedOperatorControlsFromRecorder(sourceRecorder As RecorderControl)
@@ -872,5 +960,6 @@ Partial Public Class RecorderHostForm
         recordingDriveFreeSpaceTimer.Stop()
         systemCpuTimer.Dispose()
         recordingDriveFreeSpaceTimer.Dispose()
+        Program.StopBundledHelperProcesses()
     End Sub
 End Class

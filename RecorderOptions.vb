@@ -86,7 +86,7 @@ Friend Class RecorderOptions
 
         If audioMonitorPort > 0 Then
             builder.Append("-map ").Append(Quote("[mon_a]")).Append(" ")
-            builder.Append("-vn -flush_packets 1 -c:a pcm_s16le -ar 48000 -ac ").Append(Math.Max(1, Channels)).Append(" -f s16le ")
+            builder.Append("-vn -flush_packets 1 -c:a pcm_s16le -ar 48000 -ac 2 -f nut ")
             builder.Append(Quote(BuildAudioMonitorUrl(audioMonitorPort)))
         End If
 
@@ -95,9 +95,9 @@ Friend Class RecorderOptions
 
     Public Function BuildPreviewArguments(Optional previewWidth As Integer = 960, Optional previewFrameRate As Integer = 8) As String
         Dim builder As New StringBuilder()
-        Dim filterGraph = BuildLivePreviewFilterGraph(previewWidth, previewFrameRate, PreviewVideoFilter)
+        Dim filterGraph = BuildLivePreviewFilterGraph(previewWidth, previewFrameRate, PreviewVideoFilter, includeMonitorAudio:=False)
 
-        builder.Append("-hide_banner -loglevel warning -fflags nobuffer -flags low_delay ")
+        builder.Append("-hide_banner -loglevel warning ")
         builder.Append("-f decklink ")
         AppendFormatCodeArgument(builder)
         builder.Append("-audio_input ").Append(Quote(AudioInput)).Append(" ")
@@ -116,9 +116,9 @@ Friend Class RecorderOptions
         End If
 
         Dim builder As New StringBuilder()
-        Dim filterGraph = BuildLivePreviewFilterGraph(previewWidth, previewFrameRate, PreviewVideoFilter)
+        Dim filterGraph = BuildLivePreviewFilterGraph(previewWidth, previewFrameRate, PreviewVideoFilter, includeMonitorAudio:=True)
 
-        builder.Append("-hide_banner -loglevel warning -fflags nobuffer -flags low_delay ")
+        builder.Append("-hide_banner -loglevel warning ")
         builder.Append("-f decklink ")
         AppendFormatCodeArgument(builder)
         builder.Append("-audio_input ").Append(Quote(AudioInput)).Append(" ")
@@ -127,8 +127,8 @@ Friend Class RecorderOptions
         builder.Append("-filter_complex ").Append(Quote(filterGraph)).Append(" ")
         builder.Append("-map ").Append(Quote("[out]")).Append(" ")
         builder.Append("-an -flush_packets 1 -c:v mjpeg -q:v 6 -f mjpeg pipe:1 ")
-        builder.Append("-map 0:a ")
-        builder.Append("-vn -flush_packets 1 -c:a pcm_s16le -ar 48000 -ac ").Append(Math.Max(1, Channels)).Append(" -f s16le ")
+        builder.Append("-map ").Append(Quote("[mon_a]")).Append(" ")
+        builder.Append("-vn -flush_packets 1 -c:a pcm_s16le -ar 48000 -ac 2 -f nut ")
         builder.Append(Quote(BuildAudioMonitorUrl(audioMonitorPort)))
 
         Return builder.ToString()
@@ -153,7 +153,7 @@ Friend Class RecorderOptions
         Dim previewChain = BuildPreviewVideoChain(previewVideoFilter)
         Dim sonyCompatibleAudioChain = BuildSonyCompatibleAudioChain()
 
-        Return $"[0:v]split=2[rec_src][preview_src];{recordingChain}{previewChain}[preview_stage]scale={previewWidth}:{previewHeight}:force_original_aspect_ratio=decrease,pad={previewWidth}:{previewHeight}:(ow-iw)/2:(oh-ih)/2,fps={Math.Max(1, previewFrameRate)},format=yuv420p[preview_video];[0:a]asplit={audioSplitCount}{audioSplitOutputs};{sonyCompatibleAudioChain}[meter_a]asplit=2[left_meter_src][right_meter_src];[left_meter_src]pan=mono|c0=c0,showvolume=r={Math.Max(1, previewFrameRate)}:w={meterChannelWidth}:h={previewHeight}:f=0.92:b=2:t=0:v=1:dm=1:o=v:ds=log:p=0.18:m=r[left_bar_src];[left_bar_src]scale={meterOutputWidth}:{previewHeight},format=yuv420p[left_bar];[right_meter_src]pan={rightMeterPan},showvolume=r={Math.Max(1, previewFrameRate)}:w={meterChannelWidth}:h={previewHeight}:f=0.92:b=2:t=0:v=1:dm=1:o=v:ds=log:p=0.18:m=r[right_bar_src];[right_bar_src]scale={meterOutputWidth}:{previewHeight},format=yuv420p[right_bar];[left_bar][preview_video][right_bar]hstack=inputs=3[preview]"
+        Return $"[0:v]split=2[rec_src][preview_src];{recordingChain}{previewChain}[preview_stage]scale={previewWidth}:{previewHeight}:force_original_aspect_ratio=decrease,pad={previewWidth}:{previewHeight}:(ow-iw)/2:(oh-ih)/2,fps={Math.Max(1, previewFrameRate)},format=yuv420p[preview_video];[0:a]aresample=48000,pan=stereo|c0=c0|c1=c1[input_a];[input_a]asplit={audioSplitCount}{audioSplitOutputs};{sonyCompatibleAudioChain}[meter_a]asplit=2[left_meter_src][right_meter_src];[left_meter_src]pan=mono|c0=c0,showvolume=r={Math.Max(1, previewFrameRate)}:w={meterChannelWidth}:h={previewHeight}:f=0.92:b=2:t=0:v=1:dm=1:o=v:ds=log:p=0.18:m=r[left_bar_src];[left_bar_src]scale={meterOutputWidth}:{previewHeight},format=yuv420p[left_bar];[right_meter_src]pan={rightMeterPan},showvolume=r={Math.Max(1, previewFrameRate)}:w={meterChannelWidth}:h={previewHeight}:f=0.92:b=2:t=0:v=1:dm=1:o=v:ds=log:p=0.18:m=r[right_bar_src];[right_bar_src]scale={meterOutputWidth}:{previewHeight},format=yuv420p[right_bar];[left_bar][preview_video][right_bar]hstack=inputs=3[preview]"
     End Function
 
     Private Function BuildSonyCompatibleAudioChain() As String
@@ -197,14 +197,16 @@ Friend Class RecorderOptions
         Return $"[preview_src]{previewVideoFilter.Trim()}[preview_stage];"
     End Function
 
-    Private Function BuildLivePreviewFilterGraph(previewWidth As Integer, previewFrameRate As Integer, previewVideoFilter As String) As String
+    Private Function BuildLivePreviewFilterGraph(previewWidth As Integer, previewFrameRate As Integer, previewVideoFilter As String, includeMonitorAudio As Boolean) As String
         Dim previewHeight = GetPreviewHeight(previewWidth)
         Dim meterChannelWidth = GetMeterChannelWidth(previewWidth)
         Dim meterOutputWidth = GetMeterOutputWidth(previewWidth)
         Dim rightMeterPan = GetRightMeterPanExpression()
         Dim previewChain = BuildStandalonePreviewVideoChain(previewVideoFilter)
+        Dim audioSplitCount = If(includeMonitorAudio, 3, 2)
+        Dim audioSplitOutputs = If(includeMonitorAudio, "[left_meter_src][right_meter_src][mon_a]", "[left_meter_src][right_meter_src]")
 
-        Return $"{previewChain}[preview_stage]scale={previewWidth}:{previewHeight}:force_original_aspect_ratio=decrease,pad={previewWidth}:{previewHeight}:(ow-iw)/2:(oh-ih)/2,fps={Math.Max(1, previewFrameRate)},format=yuv420p[video];[0:a]asplit=2[left_meter_src][right_meter_src];[left_meter_src]pan=mono|c0=c0,showvolume=r={Math.Max(1, previewFrameRate)}:w={meterChannelWidth}:h={previewHeight}:f=0.92:b=2:t=0:v=1:dm=1:o=v:ds=log:p=0.18:m=r[left_bar_src];[left_bar_src]scale={meterOutputWidth}:{previewHeight},format=yuv420p[left_bar];[right_meter_src]pan={rightMeterPan},showvolume=r={Math.Max(1, previewFrameRate)}:w={meterChannelWidth}:h={previewHeight}:f=0.92:b=2:t=0:v=1:dm=1:o=v:ds=log:p=0.18:m=r[right_bar_src];[right_bar_src]scale={meterOutputWidth}:{previewHeight},format=yuv420p[right_bar];[left_bar][video][right_bar]hstack=inputs=3[out]"
+        Return $"{previewChain}[preview_stage]scale={previewWidth}:{previewHeight}:force_original_aspect_ratio=decrease,pad={previewWidth}:{previewHeight}:(ow-iw)/2:(oh-ih)/2,fps={Math.Max(1, previewFrameRate)},format=yuv420p[video];[0:a]aresample=48000,pan=stereo|c0=c0|c1=c1[input_a];[input_a]asplit={audioSplitCount}{audioSplitOutputs};[left_meter_src]pan=mono|c0=c0,showvolume=r={Math.Max(1, previewFrameRate)}:w={meterChannelWidth}:h={previewHeight}:f=0.92:b=2:t=0:v=1:dm=1:o=v:ds=log:p=0.18:m=r[left_bar_src];[left_bar_src]scale={meterOutputWidth}:{previewHeight},format=yuv420p[left_bar];[right_meter_src]pan={rightMeterPan},showvolume=r={Math.Max(1, previewFrameRate)}:w={meterChannelWidth}:h={previewHeight}:f=0.92:b=2:t=0:v=1:dm=1:o=v:ds=log:p=0.18:m=r[right_bar_src];[right_bar_src]scale={meterOutputWidth}:{previewHeight},format=yuv420p[right_bar];[left_bar][video][right_bar]hstack=inputs=3[out]"
     End Function
 
     Private Function BuildStandalonePreviewVideoChain(previewVideoFilter As String) As String
