@@ -8,8 +8,6 @@
     <RootNamespace>FfmpegRecorder</RootNamespace>
     <StartupObject>Sub Main</StartupObject>
     <UseWindowsForms>true</UseWindowsForms>
-    <DeckLinkSdkHelperDirectory>$(MSBuildProjectDirectory)\DeckLinkOutputHelper\</DeckLinkSdkHelperDirectory>
-    <DeckLinkSdkHelperFileName>DeckLinkOutputHelper.exe</DeckLinkSdkHelperFileName>
   </PropertyGroup>
 
   <ItemGroup>
@@ -18,18 +16,13 @@
     <Import Include="System.Windows.Forms" />
   </ItemGroup>
 
-  <Target Name="CopyDeckLinkSdkOutputHelper" BeforeTargets="CreateTimestampedExecutableCopy" Condition="Exists('$(DeckLinkSdkHelperDirectory)$(DeckLinkSdkHelperFileName)')">
-    <ItemGroup>
-      <DeckLinkSdkHelperArtifacts Include="$(DeckLinkSdkHelperDirectory)*.dll" />
-      <DeckLinkSdkHelperArtifacts Include="$(DeckLinkSdkHelperDirectory)*.json" />
-      <DeckLinkSdkHelperArtifacts Include="$(DeckLinkSdkHelperDirectory)$(DeckLinkSdkHelperFileName)" />
-    </ItemGroup>
-
-    <Copy SourceFiles="@(DeckLinkSdkHelperArtifacts)"
-          DestinationFolder="$(TargetDir)"
-          SkipUnchangedFiles="true" />
-    <Message Importance="High" Text="Prepared DeckLink SDK output helper from $(DeckLinkSdkHelperDirectory)" />
-  </Target>
+  <ItemGroup>
+    <Reference Include="DeckLinkAPI.Interop">
+      <HintPath>DeckLinkSdk\DeckLinkAPI.Interop.dll</HintPath>
+      <Private>true</Private>
+      <EmbedInteropTypes>false</EmbedInteropTypes>
+    </Reference>
+  </ItemGroup>
 
   <Target Name="CreateTimestampedExecutableCopy" AfterTargets="Build" Condition="Exists('$(TargetDir)$(AssemblyName).exe')">
     <PropertyGroup>
@@ -40,6 +33,21 @@
     <ItemGroup>
       <ExistingTimestampedExecutables Include="$(TargetDir)$(AssemblyName)_*.exe" />
       <DeckLinkPlayerHelperArtifacts Include="$(TargetDir)decklinkplayer*.exe" />
+      <DeckLinkPlayerHelperArtifacts Include="$(TargetDir)decklinkplayer.dll" />
+      <DeckLinkPlayerHelperArtifacts Include="$(TargetDir)decklinkplayer.pdb" />
+      <DeckLinkPlayerHelperArtifacts Include="$(TargetDir)decklinkplayer.deps.json" />
+      <DeckLinkPlayerHelperArtifacts Include="$(TargetDir)decklinkplayer.runtimeconfig.json" />
+      <DeckLinkPlayerHelperArtifacts Include="$(TargetDir)DeckLinkOutputHelper.exe" />
+      <DeckLinkPlayerHelperArtifacts Include="$(TargetDir)FFmpeg.AutoGen.*.dll" />
+      <DeckLinkPlayerHelperArtifacts Include="$(TargetDir)MediaInfo.Wrapper.Core.dll" />
+      <DeckLinkPlayerHelperArtifacts Include="$(TargetDir)Microsoft.Extensions.DependencyInjection.Abstractions.dll" />
+      <DeckLinkPlayerHelperArtifacts Include="$(TargetDir)Microsoft.Extensions.Logging.Abstractions.dll" />
+      <DeckLinkPlayerHelperArtifacts Include="$(TargetDir)brotli*.dll" />
+      <DeckLinkPlayerHelperArtifacts Include="$(TargetDir)libcrypto-3-x64.dll" />
+      <DeckLinkPlayerHelperArtifacts Include="$(TargetDir)libcurl.dll" />
+      <DeckLinkPlayerHelperArtifacts Include="$(TargetDir)libmediainfo.dll" />
+      <DeckLinkPlayerHelperArtifacts Include="$(TargetDir)libssh2.dll" />
+      <DeckLinkPlayerHelperArtifacts Include="$(TargetDir)libssl-3-x64.dll" />
     </ItemGroup>
 
     <Delete Files="@(ExistingTimestampedExecutables)" />

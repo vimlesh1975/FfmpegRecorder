@@ -23,7 +23,6 @@ Friend Module Program
     Friend Sub StopBundledHelperProcesses()
         Dim appDirectory = Path.GetFullPath(AppContext.BaseDirectory).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
         Dim helperNames = New HashSet(Of String)(StringComparer.OrdinalIgnoreCase) From {
-            "DeckLinkOutputHelper",
             "ffmpeg",
             "ffplay",
             "ffprobe",
@@ -35,8 +34,7 @@ Friend Module Program
                 Dim processName = runningProcess.ProcessName
 
                 If Not helperNames.Contains(processName) AndAlso
-                    Not processName.StartsWith("ffmbc", StringComparison.OrdinalIgnoreCase) AndAlso
-                    Not processName.StartsWith("decklinkplayer", StringComparison.OrdinalIgnoreCase) Then
+                    Not processName.StartsWith("ffmbc", StringComparison.OrdinalIgnoreCase) Then
                     Continue For
                 End If
 
