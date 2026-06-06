@@ -12,7 +12,7 @@ Public Class DeckLinkPlayerControl
     Inherits UserControl
 
     Private Const LoadingNodeText As String = "Loading..."
-    Private Const NoDeckLinkOutputText As String = "(No DeckLink output)"
+    Private Const NoDeckLinkOutputText As String = "None"
     Private Const DefaultDeckLinkOutputDeviceName As String = "DeckLink SDI 4K"
     Private Const DurationDisplayFrameRate As Integer = 25
 
@@ -471,9 +471,9 @@ Public Class DeckLinkPlayerControl
         Dim deviceNames = GetDeckLinkOutputDeviceNames(ffmpegPath)
 
         outputDeviceComboBox.Items.Clear()
+        outputDeviceComboBox.Items.Add(NoDeckLinkOutputText)
 
         If deviceNames.Count = 0 Then
-            outputDeviceComboBox.Items.Add(NoDeckLinkOutputText)
             outputDeviceComboBox.SelectedIndex = 0
             SetStatus("No DeckLink output device found. Local preview is still available.", warning:=True)
             UpdatePreviewButtons()
@@ -495,7 +495,11 @@ Public Class DeckLinkPlayerControl
         End If
 
         outputDeviceComboBox.SelectedItem = targetDevice
-        SetStatus($"DeckLink output ready: {targetDevice}.")
+        If IsNoDeckLinkOutputDevice(targetDevice) Then
+            SetStatus("DeckLink output disabled. Local preview only.")
+        Else
+            SetStatus($"DeckLink output ready: {targetDevice}.")
+        End If
         UpdatePreviewButtons()
     End Sub
 
@@ -644,6 +648,16 @@ Public Class DeckLinkPlayerControl
 
     Private Sub OnOutputSelectionChanged(sender As Object, e As EventArgs)
         SaveDeckLinkOutputSelection()
+
+        Dim deviceName = TryCast(outputDeviceComboBox.SelectedItem, String)
+        Dim outputMode = TryCast(outputModeComboBox.SelectedItem, DeckLinkOutputMode)
+
+        If IsNoDeckLinkOutputDevice(deviceName) Then
+            SetStatus("DeckLink output disabled. Local preview only.")
+        ElseIf outputMode IsNot Nothing Then
+            SetStatus($"DeckLink output ready: {deviceName} {outputMode.DisplayName}.")
+        End If
+
         UpdatePreviewButtons()
     End Sub
 
@@ -846,9 +860,7 @@ Public Class DeckLinkPlayerControl
         Dim deviceName = TryCast(outputDeviceComboBox.SelectedItem, String)
         Dim outputMode = TryCast(outputModeComboBox.SelectedItem, DeckLinkOutputMode)
 
-        If String.IsNullOrWhiteSpace(deviceName) OrElse
-           String.Equals(deviceName, NoDeckLinkOutputText, StringComparison.OrdinalIgnoreCase) OrElse
-           outputMode Is Nothing Then
+        If String.IsNullOrWhiteSpace(deviceName) OrElse outputMode Is Nothing Then
             Return
         End If
 
@@ -1279,10 +1291,6 @@ Public Class DeckLinkPlayerControl
         If resetToStart Then
             playbackStartOffset = TimeSpan.Zero
             SetScrubberPosition(TimeSpan.Zero)
-
-            If outputRunnerIsScrubHold Then
-                Await StopOutputAsync()
-            End If
         End If
 
         scrubPreviewTimer.Stop()
@@ -1448,8 +1456,12 @@ Public Class DeckLinkPlayerControl
 
         Dim deviceName = TryCast(outputDeviceComboBox.SelectedItem, String)
 
-        If String.IsNullOrWhiteSpace(deviceName) OrElse String.Equals(deviceName, NoDeckLinkOutputText, StringComparison.OrdinalIgnoreCase) Then
-            SetStatus("Choose a DeckLink output device first.", warning:=True)
+        If IsNoDeckLinkOutputDevice(deviceName) Then
+            If outputRunner IsNot Nothing Then
+                Await StopOutputAsync()
+            End If
+
+            SetStatus($"Playing local preview only: {Path.GetFileName(filePath)}")
             Return
         End If
 
@@ -1512,8 +1524,7 @@ Public Class DeckLinkPlayerControl
 
         Dim deviceName = TryCast(outputDeviceComboBox.SelectedItem, String)
 
-        If String.IsNullOrWhiteSpace(deviceName) OrElse String.Equals(deviceName, NoDeckLinkOutputText, StringComparison.OrdinalIgnoreCase) Then
-            SetStatus("Choose a DeckLink output device first.", warning:=True)
+        If IsNoDeckLinkOutputDevice(deviceName) Then
             Return False
         End If
 
@@ -1653,7 +1664,11 @@ Public Class DeckLinkPlayerControl
     End Function
 
     Private Shared Function BuildScrubDeckLinkOutputKey(filePath As String, deviceName As String, outputMode As DeckLinkOutputMode) As String
-        Return $"{Path.GetFullPath(filePath)}|{deviceName}|{outputMode.FormatCode}|{outputMode.Width}x{outputMode.Height}|{outputMode.FrameRate}"
+        Return $"{deviceName}|{outputMode.FormatCode}|{outputMode.Width}x{outputMode.Height}|{outputMode.FrameRate}"
+    End Function
+
+    Private Shared Function IsNoDeckLinkOutputDevice(deviceName As String) As Boolean
+        Return String.IsNullOrWhiteSpace(deviceName) OrElse String.Equals(deviceName, NoDeckLinkOutputText, StringComparison.OrdinalIgnoreCase)
     End Function
 
     Private Shared Function BuildPreviewArguments(filePath As String, hasAudioStream As Boolean, startOffset As TimeSpan) As String
@@ -1947,6 +1962,31 @@ Public Class DeckLinkPlayerControl
         UpdatePreviewButtons()
     End Sub
 
+    Private Sub outputRunner_PlaybackEnded(exitCode As Integer) Handles outputRunner.PlaybackEnded
+        If IsDisposed Then
+            Return
+        End If
+
+        If InvokeRequired Then
+            BeginInvoke(New Action(Of Integer)(AddressOf outputRunner_PlaybackEnded), exitCode)
+            Return
+        End If
+
+        outputRunnerIsScrubHold = True
+
+        Dim deviceName = TryCast(outputDeviceComboBox.SelectedItem, String)
+        Dim outputMode = TryCast(outputModeComboBox.SelectedItem, DeckLinkOutputMode)
+        If Not IsNoDeckLinkOutputDevice(deviceName) AndAlso outputMode IsNot Nothing Then
+            scrubDeckLinkOutputKey = BuildScrubDeckLinkOutputKey(String.Empty, deviceName, outputMode)
+        Else
+            scrubDeckLinkOutputKey = Nothing
+        End If
+
+        lastDeckLinkOutputMessage = String.Empty
+        SetStatus("DeckLink playback ended. Holding last SDI frame.")
+        UpdatePreviewButtons()
+    End Sub
+
     Private Sub audioMonitorRunner_LogReceived(message As String) Handles audioMonitorRunner.LogReceived
         If String.IsNullOrWhiteSpace(message) OrElse IsDisposed Then
             Return
@@ -1981,10 +2021,7 @@ Public Class DeckLinkPlayerControl
         Dim isPreviewRunning = previewRunner IsNot Nothing
         Dim isOutputRunning = outputRunner IsNot Nothing
         Dim isBlockingOutputRunning = isOutputRunning AndAlso Not outputRunnerIsScrubHold
-        Dim hasOutputDevice = outputDeviceComboBox.SelectedItem IsNot Nothing AndAlso
-            Not String.Equals(TryCast(outputDeviceComboBox.SelectedItem, String), NoDeckLinkOutputText, StringComparison.OrdinalIgnoreCase)
-
-        previewButton.Enabled = hasSelectedFile AndAlso hasOutputDevice AndAlso Not isLoadingFiles AndAlso Not isPreviewRunning AndAlso Not isBlockingOutputRunning AndAlso Not isStoppingPreview AndAlso Not isStoppingOutput AndAlso Not isSeekingPlayback
+        previewButton.Enabled = hasSelectedFile AndAlso Not isLoadingFiles AndAlso Not isPreviewRunning AndAlso Not isBlockingOutputRunning AndAlso Not isStoppingPreview AndAlso Not isStoppingOutput AndAlso Not isSeekingPlayback
         stopPreviewButton.Enabled = (isPreviewRunning OrElse isOutputRunning) AndAlso Not isStoppingPreview AndAlso Not isStoppingOutput AndAlso Not isSeekingPlayback
         outputDeviceComboBox.Enabled = Not isOutputRunning AndAlso Not isStoppingOutput AndAlso Not isSeekingPlayback
         outputModeComboBox.Enabled = Not isOutputRunning AndAlso Not isStoppingOutput AndAlso Not isSeekingPlayback

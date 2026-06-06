@@ -55,6 +55,7 @@ Friend NotInheritable Class InProcessDeckLinkOutputRunner
 
     Public Event LogReceived(message As String)
     Public Event Exited(exitCode As Integer)
+    Public Event PlaybackEnded(exitCode As Integer)
 
     Public Async Function DisplayScrubFrameAsync(ffmpegPath As String, filePath As String, deviceName As String, formatCode As String, width As Integer, height As Integer, frameRate As String, isInterlaced As Boolean, startOffset As TimeSpan) As Task
         ThrowIfDisposed()
@@ -141,6 +142,7 @@ Friend NotInheritable Class InProcessDeckLinkOutputRunner
         Dim token = tokenSource.Token
         Dim exitCode = 0
         Dim shouldRaiseExit = False
+        Dim shouldRaisePlaybackEnded = False
         Dim videoStderrTask As Task = Nothing
         Dim audioStderrTask As Task = Nothing
         Dim audioPumpTask As Task = Nothing
@@ -213,6 +215,8 @@ Friend NotInheritable Class InProcessDeckLinkOutputRunner
         DisposeProcess(localVideoDecoder)
         DisposeProcess(localAudioDecoder)
 
+        Dim shouldHoldLastFrame = exitCode = 0 AndAlso Not token.IsCancellationRequested
+
         SyncLock lifecycleLock
             If Object.ReferenceEquals(playbackCancellation, tokenSource) Then
                 playbackCancellation = Nothing
@@ -220,12 +224,21 @@ Friend NotInheritable Class InProcessDeckLinkOutputRunner
                 videoDecoder = Nothing
                 audioDecoder = Nothing
                 DisableAudioOutputLocked()
-                ReleaseOutputLocked()
-                shouldRaiseExit = Not disposed AndAlso Not token.IsCancellationRequested
+
+                If shouldHoldLastFrame Then
+                    shouldRaisePlaybackEnded = Not disposed
+                Else
+                    ReleaseOutputLocked()
+                    shouldRaiseExit = Not disposed AndAlso Not token.IsCancellationRequested
+                End If
             End If
         End SyncLock
 
         tokenSource.Dispose()
+
+        If shouldRaisePlaybackEnded Then
+            RaiseEvent PlaybackEnded(exitCode)
+        End If
 
         If shouldRaiseExit Then
             RaiseEvent Exited(exitCode)
