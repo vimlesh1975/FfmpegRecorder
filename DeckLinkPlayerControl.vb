@@ -665,7 +665,7 @@ Public Class DeckLinkPlayerControl
         If scrubberTrackBar.Enabled AndAlso e.Button = MouseButtons.Left Then
             isScrubberDragging = True
             SetScrubberPositionFromMouse(e)
-            QueueScrubFramePreview(GetScrubberOffset(), updateDeckLink:=False)
+            QueueScrubFramePreview(GetScrubberOffset(), updateDeckLink:=True)
         End If
     End Sub
 
@@ -681,6 +681,8 @@ Public Class DeckLinkPlayerControl
             Return
         End If
 
+        Dim shouldStartPlayback = isScrubberDragging AndAlso e.Button = MouseButtons.Left
+
         If e.Button = MouseButtons.Left Then
             SetScrubberPositionFromMouse(e)
         End If
@@ -689,6 +691,10 @@ Public Class DeckLinkPlayerControl
         scrubPreviewTimer.Stop()
         QueueScrubFramePreview(GetScrubberOffset(), updateDeckLink:=True)
         Await WaitForScrubFrameQueueAsync()
+
+        If shouldStartPlayback Then
+            Await StartSelectedPlaybackAsync()
+        End If
     End Sub
 
     Private Sub OnScrubberScrolled(sender As Object, e As EventArgs)
@@ -712,7 +718,7 @@ Public Class DeckLinkPlayerControl
         scrubPreviewTimer.Stop()
 
         If scrubberTrackBar.Enabled AndAlso isScrubberDragging Then
-            QueueScrubFramePreview(GetScrubberOffset(), updateDeckLink:=False)
+            QueueScrubFramePreview(GetScrubberOffset(), updateDeckLink:=True)
         End If
     End Sub
 
@@ -1301,10 +1307,11 @@ Public Class DeckLinkPlayerControl
         playbackStartOffset = ClampToPlayableStartOffset(playbackStartOffset)
         SetScrubberPosition(playbackStartOffset)
 
-        Dim keepScrubOutputUntilPreviewReady = outputRunner IsNot Nothing AndAlso outputRunnerIsScrubHold
+        Dim selectedOutputDevice = TryCast(outputDeviceComboBox.SelectedItem, String)
+        Dim keepDeckLinkOutputUntilPreviewReady = outputRunner IsNot Nothing AndAlso Not IsNoDeckLinkOutputDevice(selectedOutputDevice)
         Dim firstPreviewFrameSource As TaskCompletionSource(Of Boolean) = Nothing
 
-        If keepScrubOutputUntilPreviewReady Then
+        If keepDeckLinkOutputUntilPreviewReady Then
             StopPlaybackClock()
             TearDownAudioMonitor(fast:=True)
             Await StopPreviewAsync(clearImage:=False)
@@ -1316,7 +1323,7 @@ Public Class DeckLinkPlayerControl
 
         Await StartPreviewAsync(filePath, playbackStartOffset)
 
-        If keepScrubOutputUntilPreviewReady Then
+        If keepDeckLinkOutputUntilPreviewReady Then
             Await WaitForFirstPreviewFrameAsync(firstPreviewFrameSource, TimeSpan.FromSeconds(3))
         End If
 
@@ -1479,9 +1486,6 @@ Public Class DeckLinkPlayerControl
                 If Not String.Equals(scrubDeckLinkOutputKey, outputKey, StringComparison.OrdinalIgnoreCase) Then
                     Await StopOutputAsync()
                 End If
-            Else
-                SetStatus("DeckLink output is already running.", warning:=True)
-                Return
             End If
         End If
 
