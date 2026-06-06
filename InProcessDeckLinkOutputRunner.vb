@@ -57,28 +57,34 @@ Friend NotInheritable Class InProcessDeckLinkOutputRunner
     Public Event Exited(exitCode As Integer)
     Public Event PlaybackEnded(exitCode As Integer)
 
-    Public Async Function DisplayScrubFrameAsync(ffmpegPath As String, filePath As String, deviceName As String, formatCode As String, width As Integer, height As Integer, frameRate As String, isInterlaced As Boolean, startOffset As TimeSpan) As Task
+    Public Async Function DisplayScrubFrameAsync(ffmpegPath As String, filePath As String, deviceName As String, formatCode As String, width As Integer, height As Integer, frameRate As String, isInterlaced As Boolean, startOffset As TimeSpan, cancellationToken As CancellationToken) As Task
         ThrowIfDisposed()
+        cancellationToken.ThrowIfCancellationRequested()
 
         Await Task.Run(
             Sub()
+                cancellationToken.ThrowIfCancellationRequested()
                 StopPlayback(disableVideoOutput:=False)
 
                 SyncLock lifecycleLock
                     ThrowIfDisposed()
+                    cancellationToken.ThrowIfCancellationRequested()
                     EnsureOutputLocked(deviceName, formatCode, width, height, frameRate)
-                    Dim frame = DecodeSingleFrame(ffmpegPath, filePath, outputWidth, outputHeight, frameRate, isInterlaced, startOffset)
+                    Dim frame = DecodeSingleFrame(ffmpegPath, filePath, outputWidth, outputHeight, frameRate, isInterlaced, startOffset, cancellationToken)
+                    cancellationToken.ThrowIfCancellationRequested()
                     DisplayRawFrameLocked(frame)
                 End SyncLock
-            End Sub)
+            End Sub,
+            cancellationToken)
     End Function
 
-    Public Async Function StartPlaybackAsync(ffmpegPath As String, filePath As String, deviceName As String, formatCode As String, width As Integer, height As Integer, frameRate As String, isInterlaced As Boolean, hasAudioStream As Boolean, startOffset As TimeSpan) As Task
+    Public Async Function StartPlaybackAsync(ffmpegPath As String, filePath As String, deviceName As String, formatCode As String, width As Integer, height As Integer, frameRate As String, isInterlaced As Boolean, hasAudioStream As Boolean, startOffset As TimeSpan, playbackSpeed As Double) As Task
         ThrowIfDisposed()
 
         Await Task.Run(
             Sub()
                 StopPlayback(disableVideoOutput:=False)
+                Dim normalizedSpeed = NormalizePlaybackSpeed(playbackSpeed)
 
                 Dim tokenSource As New CancellationTokenSource()
                 Dim localVideoDecoder As Process = Nothing
@@ -96,10 +102,10 @@ Friend NotInheritable Class InProcessDeckLinkOutputRunner
                             DisableAudioOutputLocked()
                         End If
 
-                        localVideoDecoder = StartDecoder(ffmpegPath, BuildVideoDecoderArguments(filePath, outputWidth, outputHeight, frameRate, isInterlaced, startOffset))
+                        localVideoDecoder = StartDecoder(ffmpegPath, BuildVideoDecoderArguments(filePath, outputWidth, outputHeight, frameRate, isInterlaced, startOffset, normalizedSpeed))
 
                         If playAudio Then
-                            localAudioDecoder = StartDecoder(ffmpegPath, BuildAudioDecoderArguments(filePath, startOffset))
+                            localAudioDecoder = StartDecoder(ffmpegPath, BuildAudioDecoderArguments(filePath, startOffset, normalizedSpeed))
                         End If
 
                         playbackCancellation = tokenSource
@@ -438,19 +444,38 @@ Friend NotInheritable Class InProcessDeckLinkOutputRunner
         End Try
     End Sub
 
-    Private Shared Function DecodeSingleFrame(ffmpegPath As String, filePath As String, width As Integer, height As Integer, frameRate As String, isInterlaced As Boolean, startOffset As TimeSpan) As Byte()
+    Private Shared Function DecodeSingleFrame(ffmpegPath As String, filePath As String, width As Integer, height As Integer, frameRate As String, isInterlaced As Boolean, startOffset As TimeSpan, cancellationToken As CancellationToken) As Byte()
         Dim frameBytes = width * height * BytesPerPixelUyvy
         Dim buffer(frameBytes - 1) As Byte
         Dim process = StartDecoder(ffmpegPath, BuildSingleFrameDecoderArguments(filePath, width, height, frameRate, isInterlaced, startOffset))
 
         Try
-            If Not ReadExactFrame(process.StandardOutput.BaseStream, buffer) Then
+            Using cancellationToken.Register(Sub() TryKill(process))
+                If Not ReadExactFrame(process.StandardOutput.BaseStream, buffer, cancellationToken) Then
+                    Dim errorText = process.StandardError.ReadToEnd()
+                    Throw New InvalidOperationException(If(String.IsNullOrWhiteSpace(errorText), "FFmpeg did not decode a scrub frame.", errorText.Trim()))
+                End If
+
+                cancellationToken.ThrowIfCancellationRequested()
+
+                Dim waitStartedAt = DateTime.UtcNow
+                While Not process.WaitForExit(25)
+                    cancellationToken.ThrowIfCancellationRequested()
+
+                    If DateTime.UtcNow - waitStartedAt >= TimeSpan.FromSeconds(5) Then
+                        Exit While
+                    End If
+                End While
+
+                If Not process.HasExited Then
+                    TryKill(process)
+                    Return Nothing
+                End If
+            End Using
+
+            If buffer Is Nothing Then
                 Dim errorText = process.StandardError.ReadToEnd()
                 Throw New InvalidOperationException(If(String.IsNullOrWhiteSpace(errorText), "FFmpeg did not decode a scrub frame.", errorText.Trim()))
-            End If
-
-            If Not process.WaitForExit(5000) Then
-                TryKill(process)
             End If
 
             Return buffer
@@ -515,7 +540,7 @@ Friend NotInheritable Class InProcessDeckLinkOutputRunner
         Return args
     End Function
 
-    Private Shared Function BuildVideoDecoderArguments(filePath As String, width As Integer, height As Integer, frameRate As String, isInterlaced As Boolean, startOffset As TimeSpan) As IReadOnlyList(Of String)
+    Private Shared Function BuildVideoDecoderArguments(filePath As String, width As Integer, height As Integer, frameRate As String, isInterlaced As Boolean, startOffset As TimeSpan, playbackSpeed As Double) As IReadOnlyList(Of String)
         Dim args As New List(Of String) From {
             "-hide_banner",
             "-loglevel",
@@ -539,7 +564,7 @@ Friend NotInheritable Class InProcessDeckLinkOutputRunner
         args.Add("0:v:0")
         args.Add("-an")
         args.Add("-vf")
-        args.Add(BuildVideoFilter(width, height, frameRate, isInterlaced))
+        args.Add(BuildVideoFilter(width, height, frameRate, isInterlaced, playbackSpeed))
         args.Add("-s")
         args.Add($"{width}x{height}")
         args.Add("-pix_fmt")
@@ -551,7 +576,7 @@ Friend NotInheritable Class InProcessDeckLinkOutputRunner
         Return args
     End Function
 
-    Private Shared Function BuildAudioDecoderArguments(filePath As String, startOffset As TimeSpan) As IReadOnlyList(Of String)
+    Private Shared Function BuildAudioDecoderArguments(filePath As String, startOffset As TimeSpan, playbackSpeed As Double) As IReadOnlyList(Of String)
         Dim args As New List(Of String) From {
             "-hide_banner",
             "-loglevel",
@@ -570,7 +595,7 @@ Friend NotInheritable Class InProcessDeckLinkOutputRunner
         args.Add("0:a:0")
         args.Add("-vn")
         args.Add("-af")
-        args.Add("aresample=async=1000:first_pts=0,aformat=sample_fmts=s32:channel_layouts=stereo,asetpts=N/SR/TB")
+        args.Add(BuildAudioFilter(playbackSpeed))
         args.Add("-ac")
         args.Add(AudioChannels.ToString(CultureInfo.InvariantCulture))
         args.Add("-ar")
@@ -584,9 +609,25 @@ Friend NotInheritable Class InProcessDeckLinkOutputRunner
         Return args
     End Function
 
-    Private Shared Function BuildVideoFilter(width As Integer, height As Integer, frameRate As String, isInterlaced As Boolean) As String
+    Private Shared Function BuildAudioFilter(playbackSpeed As Double) As String
+        Dim audioSpeedFilter = BuildAudioSpeedFilterChain(playbackSpeed)
+        Dim filters As New List(Of String)()
+
+        If Not String.IsNullOrWhiteSpace(audioSpeedFilter) Then
+            filters.Add(audioSpeedFilter)
+        End If
+
+        filters.Add("aresample=async=1000:first_pts=0")
+        filters.Add("aformat=sample_fmts=s32:channel_layouts=stereo")
+        filters.Add("asetpts=N/SR/TB")
+        Return String.Join(",", filters)
+    End Function
+
+    Private Shared Function BuildVideoFilter(width As Integer, height As Integer, frameRate As String, isInterlaced As Boolean, Optional playbackSpeed As Double = 1.0R) As String
         Dim normalizedRate = NormalizeRateString(frameRate)
+        Dim speedNumber = FormatFilterNumber(NormalizePlaybackSpeed(playbackSpeed))
         Dim parts As New List(Of String) From {
+            $"setpts=PTS/{speedNumber}",
             $"scale={width}:{height}:force_original_aspect_ratio=decrease",
             $"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2",
             "setsar=1",
@@ -600,6 +641,46 @@ Friend NotInheritable Class InProcessDeckLinkOutputRunner
 
         parts.Add("format=uyvy422")
         Return String.Join(",", parts)
+    End Function
+
+    Private Shared Function NormalizePlaybackSpeed(speed As Double) As Double
+        If Double.IsNaN(speed) OrElse Double.IsInfinity(speed) Then
+            Return 1.0R
+        End If
+
+        Dim clamped = Math.Max(0.1R, Math.Min(20.0R, Math.Abs(speed)))
+        Return Math.Round(clamped, 1, MidpointRounding.AwayFromZero)
+    End Function
+
+    Private Shared Function FormatFilterNumber(value As Double) As String
+        Return Math.Max(0.001R, Math.Abs(value)).ToString("0.###", CultureInfo.InvariantCulture)
+    End Function
+
+    Private Shared Function BuildAudioSpeedFilterChain(playbackSpeed As Double) As String
+        Dim speed = NormalizePlaybackSpeed(playbackSpeed)
+
+        If Math.Abs(speed - 1.0R) < 0.001R Then
+            Return String.Empty
+        End If
+
+        Dim remaining = speed
+        Dim filters As New List(Of String)()
+
+        While remaining > 2.0R
+            filters.Add("atempo=2")
+            remaining /= 2.0R
+        End While
+
+        While remaining < 0.5R
+            filters.Add("atempo=0.5")
+            remaining /= 0.5R
+        End While
+
+        If Math.Abs(remaining - 1.0R) >= 0.001R Then
+            filters.Add($"atempo={FormatFilterNumber(remaining)}")
+        End If
+
+        Return String.Join(",", filters)
     End Function
 
     Private Shared Function ResolveDisplayMode(formatCode As String, width As Integer, height As Integer, frameRate As String) As _BMDDisplayMode
@@ -769,10 +850,11 @@ Friend NotInheritable Class InProcessDeckLinkOutputRunner
         Return True
     End Function
 
-    Private Shared Function ReadExactFrame(stream As Stream, buffer As Byte()) As Boolean
+    Private Shared Function ReadExactFrame(stream As Stream, buffer As Byte(), cancellationToken As CancellationToken) As Boolean
         Dim offset = 0
 
         While offset < buffer.Length
+            cancellationToken.ThrowIfCancellationRequested()
             Dim bytesRead = stream.Read(buffer, offset, buffer.Length - offset)
 
             If bytesRead = 0 Then
