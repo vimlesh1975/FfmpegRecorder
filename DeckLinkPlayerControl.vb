@@ -129,6 +129,7 @@ Public Class DeckLinkPlayerControl
     Private outputRunnerIsScrubHold As Boolean
     Private scrubDeckLinkOutputKey As String
     Private lastDeckLinkOutputMessage As String
+    Private scrubberLoadedFilePath As String
     Private playbackStartOffset As TimeSpan = TimeSpan.Zero
     Private playbackClockOffset As TimeSpan = TimeSpan.Zero
     Private playbackClockStartedAtUtc As DateTime
@@ -679,7 +680,6 @@ Public Class DeckLinkPlayerControl
 
     Private Sub OnFilesGridSelectionChanged(sender As Object, e As EventArgs)
         selectedFilePath = GetSelectedFilePath()
-        playbackStartOffset = TimeSpan.Zero
 
         If String.IsNullOrWhiteSpace(selectedFilePath) Then
             selectedFileLabel.Text = "Select a file in the grid, then Play or double-click."
@@ -754,6 +754,7 @@ Public Class DeckLinkPlayerControl
         End If
 
         playbackStartOffset = GetScrubberOffset()
+        Dim restartFilePath = If(IsScrubberLoaded(), scrubberLoadedFilePath, Nothing)
 
         If Math.Abs(playbackSpeedMultiplier) < 0.001R Then
             Await HoldCurrentFrameAsync()
@@ -762,7 +763,7 @@ Public Class DeckLinkPlayerControl
             shuttleClockStartedAtUtc = DateTime.UtcNow
             SetStatus($"Shuttle playback {FormatPlaybackSpeed(playbackSpeedMultiplier)}")
         Else
-            Await StartSelectedPlaybackAsync()
+            Await StartSelectedPlaybackAsync(filePathOverride:=restartFilePath)
         End If
     End Function
 
@@ -814,7 +815,7 @@ Public Class DeckLinkPlayerControl
         Await WaitForScrubFrameQueueAsync()
 
         If shouldStartPlayback Then
-            Await StartSelectedPlaybackAsync()
+            Await StartSelectedPlaybackAsync(filePathOverride:=scrubberLoadedFilePath)
         End If
     End Sub
 
@@ -974,7 +975,7 @@ Public Class DeckLinkPlayerControl
         playbackStartOffset = ClampToSelectedDuration(offset)
         SetScrubberPosition(playbackStartOffset)
 
-        Dim filePath = GetSelectedFilePath()
+        Dim filePath = scrubberLoadedFilePath
 
         If String.IsNullOrWhiteSpace(filePath) Then
             Return
@@ -1146,9 +1147,7 @@ Public Class DeckLinkPlayerControl
         isLoadingFiles = True
         refreshButton.Enabled = False
         filesGridView.Rows.Clear()
-        durationByPath.Clear()
         selectedFilePath = Nothing
-        playbackStartOffset = TimeSpan.Zero
         RefreshScrubberForSelectedFile()
         UpdatePreviewButtons()
         SetStatus($"Loading files from {folderPath}...")
@@ -1288,7 +1287,7 @@ Public Class DeckLinkPlayerControl
             End If
         Next
 
-        If String.Equals(selectedFilePath, filePath, StringComparison.OrdinalIgnoreCase) Then
+        If String.Equals(scrubberLoadedFilePath, filePath, StringComparison.OrdinalIgnoreCase) Then
             RefreshScrubberForSelectedFile()
         End If
     End Sub
@@ -1405,27 +1404,36 @@ Public Class DeckLinkPlayerControl
     End Function
 
     Private Function GetSelectedDuration() As TimeSpan?
-        If String.IsNullOrWhiteSpace(selectedFilePath) Then
+        If Not IsScrubberLoaded() Then
             Return Nothing
         End If
 
         Dim duration As TimeSpan
 
-        If durationByPath.TryGetValue(selectedFilePath, duration) AndAlso duration > TimeSpan.Zero Then
+        If durationByPath.TryGetValue(scrubberLoadedFilePath, duration) AndAlso duration > TimeSpan.Zero Then
             Return duration
         End If
 
         Return Nothing
     End Function
 
+    Private Function IsScrubberLoaded() As Boolean
+        Return Not String.IsNullOrWhiteSpace(scrubberLoadedFilePath)
+    End Function
+
     Private Sub RefreshScrubberForSelectedFile()
+        If Not IsScrubberLoaded() Then
+            ClearScrubber()
+            Return
+        End If
+
         Dim duration = GetSelectedDuration()
 
         If Not duration.HasValue Then
             scrubberTrackBar.Enabled = False
             scrubberTrackBar.Value = 0
             scrubberTrackBar.Maximum = 0
-            scrubberTimeLabel.Text = If(Not String.IsNullOrWhiteSpace(selectedFilePath) AndAlso IsImageFile(selectedFilePath), "Still image", "--:--:--:-- / --:--:--:--")
+            scrubberTimeLabel.Text = If(IsImageFile(scrubberLoadedFilePath), "Still image", "--:--:--:-- / --:--:--:--")
             Return
         End If
 
@@ -1439,6 +1447,13 @@ Public Class DeckLinkPlayerControl
         End If
 
         SetScrubberPosition(playbackStartOffset)
+    End Sub
+
+    Private Sub ClearScrubber()
+        scrubberTrackBar.Enabled = False
+        scrubberTrackBar.Value = 0
+        scrubberTrackBar.Maximum = 0
+        scrubberTimeLabel.Text = "--:--:--:-- / --:--:--:--"
     End Sub
 
     Private Sub SetScrubberPosition(position As TimeSpan)
@@ -1555,13 +1570,24 @@ Public Class DeckLinkPlayerControl
         SetStatus($"Holding frame at {FormatDuration(playbackStartOffset)}.")
     End Function
 
-    Private Async Function StartShuttlePlaybackAsync(Optional resetToStart As Boolean = False) As Task
-        Dim filePath = GetSelectedFilePath()
+    Private Async Function StartShuttlePlaybackAsync(Optional resetToStart As Boolean = False, Optional filePathOverride As String = Nothing) As Task
+        Dim filePath = If(String.IsNullOrWhiteSpace(filePathOverride), GetSelectedFilePath(), filePathOverride)
+        Dim updateSelection = String.IsNullOrWhiteSpace(filePathOverride)
 
         If String.IsNullOrWhiteSpace(filePath) Then
             SetStatus("Select a file from the grid first.", warning:=True)
             Return
         End If
+
+        If updateSelection Then
+            selectedFilePath = filePath
+        End If
+
+        If Not String.Equals(scrubberLoadedFilePath, filePath, StringComparison.OrdinalIgnoreCase) Then
+            scrubberLoadedFilePath = filePath
+            playbackStartOffset = TimeSpan.Zero
+        End If
+        RefreshScrubberForSelectedFile()
 
         If resetToStart Then
             playbackStartOffset = TimeSpan.Zero
@@ -1588,13 +1614,24 @@ Public Class DeckLinkPlayerControl
         UpdatePreviewButtons()
     End Function
 
-    Private Async Function StartSelectedPlaybackAsync(Optional resetToStart As Boolean = False) As Task
-        Dim filePath = GetSelectedFilePath()
+    Private Async Function StartSelectedPlaybackAsync(Optional resetToStart As Boolean = False, Optional filePathOverride As String = Nothing) As Task
+        Dim filePath = If(String.IsNullOrWhiteSpace(filePathOverride), GetSelectedFilePath(), filePathOverride)
+        Dim updateSelection = String.IsNullOrWhiteSpace(filePathOverride)
 
         If String.IsNullOrWhiteSpace(filePath) Then
             SetStatus("Select a file from the grid first.", warning:=True)
             Return
         End If
+
+        If updateSelection Then
+            selectedFilePath = filePath
+        End If
+
+        If Not String.Equals(scrubberLoadedFilePath, filePath, StringComparison.OrdinalIgnoreCase) Then
+            scrubberLoadedFilePath = filePath
+            playbackStartOffset = TimeSpan.Zero
+        End If
+        RefreshScrubberForSelectedFile()
 
         If resetToStart Then
             playbackStartOffset = TimeSpan.Zero
@@ -1610,7 +1647,7 @@ Public Class DeckLinkPlayerControl
         End If
 
         If playbackSpeedMultiplier < 0.0R Then
-            Await StartShuttlePlaybackAsync(resetToStart)
+            Await StartShuttlePlaybackAsync(resetToStart, filePath)
             Return
         End If
 
