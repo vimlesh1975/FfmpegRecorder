@@ -9,6 +9,8 @@ Public Class StreamRecorderControl
     Inherits UserControl
 
     Private Const PreviewAudioDelayMilliseconds As Integer = 700
+    Private Const RecordingModeIntervalFiles As String = "Interval Files"
+    Private Const RecordingModeSingleFile As String = "Single File"
 
     Private NotInheritable Class StreamRecordingProfile
         Public Sub New(displayName As String, containerExtension As String, outputOptions As String, Optional useFfmbcFinalize As Boolean = False)
@@ -54,6 +56,7 @@ Public Class StreamRecorderControl
     Private ReadOnly statusValueLabel As New Label()
     Private ReadOnly urlTextBox As New TextBox()
     Private ReadOnly profileComboBox As New ComboBox()
+    Private ReadOnly recordingModeComboBox As New ComboBox()
     Private ReadOnly intervalUpDown As New NumericUpDown()
     Private ReadOnly previewButton As New Button()
     Private ReadOnly stopPreviewButton As New Button()
@@ -106,6 +109,7 @@ Public Class StreamRecorderControl
         AddHandler ffmbcFinalizeTimer.Tick, AddressOf OnFfmbcFinalizeTimerTick
         AddHandler urlTextBox.TextChanged, AddressOf OnSettingsChanged
         AddHandler profileComboBox.SelectedIndexChanged, AddressOf OnSettingsChanged
+        AddHandler recordingModeComboBox.SelectedIndexChanged, AddressOf OnRecordingModeChanged
         AddHandler intervalUpDown.ValueChanged, AddressOf OnSettingsChanged
     End Sub
 
@@ -255,6 +259,21 @@ Public Class StreamRecorderControl
             .Margin = New Padding(0, 6, 6, 0)
         }
 
+        Dim recordingModeLabel As New Label() With {
+            .AutoSize = True,
+            .Text = "Mode",
+            .Margin = New Padding(0, 6, 6, 0)
+        }
+
+        recordingModeComboBox.DropDownStyle = ComboBoxStyle.DropDownList
+        recordingModeComboBox.Items.AddRange(New Object() {
+            RecordingModeIntervalFiles,
+            RecordingModeSingleFile
+        })
+        recordingModeComboBox.SelectedItem = RecordingModeIntervalFiles
+        recordingModeComboBox.Width = 108
+        recordingModeComboBox.Margin = New Padding(0, 3, 12, 0)
+
         intervalUpDown.Minimum = 1
         intervalUpDown.Maximum = 3600
         intervalUpDown.Value = 10
@@ -284,6 +303,8 @@ Public Class StreamRecorderControl
         elapsedLabel.Visible = False
         elapsedLabel.Margin = New Padding(0, 6, 0, 0)
 
+        actionRow.Controls.Add(recordingModeLabel)
+        actionRow.Controls.Add(recordingModeComboBox)
         actionRow.Controls.Add(intervalLabel)
         actionRow.Controls.Add(intervalUpDown)
         actionRow.Controls.Add(previewButton)
@@ -324,6 +345,7 @@ Public Class StreamRecorderControl
         rootLayout.Controls.Add(logTextBox, 1, 4)
 
         Controls.Add(rootLayout)
+        UpdateRecordingModeUiState()
         ResumeLayout(True)
     End Sub
 
@@ -421,7 +443,7 @@ Public Class StreamRecorderControl
                     Return
                 End If
 
-                Dim useDirectFfmbcMode = canUseDirectFfmbcMode AndAlso Await Task.Run(Function() ShouldUseDirectFfmbcSegmentMode(inputUrls, ffprobePath))
+                Dim useDirectFfmbcMode = IsIntervalRecordingModeSelected() AndAlso canUseDirectFfmbcMode AndAlso Await Task.Run(Function() ShouldUseDirectFfmbcSegmentMode(inputUrls, ffprobePath))
 
                 If IsDisposed Then
                     Return
@@ -470,7 +492,7 @@ Public Class StreamRecorderControl
                     currentDirectFfmbcSilenceFilePath = Nothing
                     currentRecordingFinalOutputFolder = OutputFolderPath
                     currentRecordingTempOutputFolder = CreateFfmbcTempOutputFolder(OutputFolderPath)
-                    Dim tempOutputPattern = Path.Combine(currentRecordingTempOutputFolder, $"Stream_%d%m%Y_%H%M%S{selectedProfile.ContainerExtension}")
+                    Dim tempOutputPathOrPattern = If(IsIntervalRecordingModeSelected(), CreateStreamOutputPattern(currentRecordingTempOutputFolder, selectedProfile), CreateUniqueStreamOutputPath(currentRecordingTempOutputFolder, selectedProfile))
                     Dim fallbackAudioSource = Await Task.Run(Function() ProbePrimaryAudioSource(inputUrls, ffprobePath))
 
                     If IsDisposed Then
@@ -483,8 +505,8 @@ Public Class StreamRecorderControl
                         Return
                     End If
 
-                    Dim arguments = BuildSonyCompatibleTempRecordingArguments(inputUrls, tempOutputPattern, selectedProfile, fallbackAudioSource, fallbackSilenceFilePath)
-                    AppendLog("XDCAM Sony Compatible is using FFmpeg ingest with FFmbc finalization for this source.")
+                    Dim arguments = BuildSonyCompatibleTempRecordingArguments(inputUrls, tempOutputPathOrPattern, selectedProfile, fallbackAudioSource, fallbackSilenceFilePath)
+                    AppendLog(If(IsIntervalRecordingModeSelected(), "XDCAM Sony Compatible is using FFmpeg ingest with FFmbc finalization for interval clips.", "XDCAM Sony Compatible is using FFmpeg ingest and will finalize the single temp file after recording stops."))
 
                     streamRunner = New FfmpegProcessRunner()
                     streamRunner.Start(ffmpegPath, arguments, currentRecordingTempOutputFolder)
@@ -507,8 +529,9 @@ Public Class StreamRecorderControl
                 currentRecordingTempOutputFolder = Nothing
                 currentRecordingFinalOutputFolder = Nothing
 
-                Dim outputPattern = Path.Combine(OutputFolderPath, $"Stream_%d%m%Y_%H%M%S{selectedProfile.ContainerExtension}")
-                Dim arguments = BuildRecordingArguments(inputUrls, outputPattern)
+                Dim outputPathOrPattern = If(IsIntervalRecordingModeSelected(), CreateStreamOutputPattern(OutputFolderPath, selectedProfile), CreateUniqueStreamOutputPath(OutputFolderPath, selectedProfile))
+                Dim arguments = BuildRecordingArguments(inputUrls, outputPathOrPattern)
+                AppendLog(If(IsIntervalRecordingModeSelected(), $"Clip pattern: {outputPathOrPattern}", $"Output file: {outputPathOrPattern}"))
 
                 streamRunner = New FfmpegProcessRunner()
                 streamRunner.Start(ffmpegPath, arguments, OutputFolderPath)
@@ -574,14 +597,7 @@ Public Class StreamRecorderControl
         builder.Append("-vf ").Append(Quote("scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,fps=25")).Append(" ")
         builder.Append(selectedProfile.OutputOptions.Trim()).Append(" ")
         builder.Append("-r 25 ")
-        builder.Append("-force_key_frames ").Append(Quote($"expr:gte(t,n_forced*{Decimal.ToInt32(intervalUpDown.Value)})")).Append(" ")
-        builder.Append("-f segment ")
-        builder.Append("-segment_time ").Append(Decimal.ToInt32(intervalUpDown.Value)).Append(" ")
-        builder.Append("-reset_timestamps 1 ")
-        builder.Append("-segment_start_number 0 ")
-        builder.Append("-segment_format ").Append(Quote(GetSegmentFormat(selectedProfile))).Append(" ")
-        builder.Append("-strftime 1 ")
-        builder.Append(Quote(outputPattern))
+        AppendStreamRecordingOutput(builder, outputPattern, selectedProfile)
         Return builder.ToString()
     End Function
 
@@ -608,16 +624,26 @@ Public Class StreamRecorderControl
         builder.Append("-vf ").Append(Quote("scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,fps=25")).Append(" ")
         builder.Append(selectedProfile.OutputOptions.Trim()).Append(" ")
         builder.Append("-r 25 ")
-        builder.Append("-force_key_frames ").Append(Quote($"expr:gte(t,n_forced*{Decimal.ToInt32(intervalUpDown.Value)})")).Append(" ")
-        builder.Append("-f segment ")
-        builder.Append("-segment_time ").Append(Decimal.ToInt32(intervalUpDown.Value)).Append(" ")
-        builder.Append("-reset_timestamps 1 ")
-        builder.Append("-segment_start_number 0 ")
-        builder.Append("-segment_format ").Append(Quote(GetSegmentFormat(selectedProfile))).Append(" ")
-        builder.Append("-strftime 1 ")
-        builder.Append(Quote(outputPattern))
+        AppendStreamRecordingOutput(builder, outputPattern, selectedProfile)
         Return builder.ToString()
     End Function
+
+    Private Sub AppendStreamRecordingOutput(builder As StringBuilder, outputPathOrPattern As String, selectedProfile As StreamRecordingProfile)
+        If IsIntervalRecordingModeSelected() Then
+            Dim intervalSeconds = Decimal.ToInt32(intervalUpDown.Value)
+            builder.Append("-force_key_frames ").Append(Quote($"expr:gte(t,n_forced*{intervalSeconds})")).Append(" ")
+            builder.Append("-f segment ")
+            builder.Append("-segment_time ").Append(intervalSeconds).Append(" ")
+            builder.Append("-reset_timestamps 1 ")
+            builder.Append("-segment_start_number 0 ")
+            builder.Append("-segment_format ").Append(Quote(GetSegmentFormat(selectedProfile))).Append(" ")
+            builder.Append("-strftime 1 ")
+            builder.Append(Quote(outputPathOrPattern))
+            Return
+        End If
+
+        builder.Append(Quote(outputPathOrPattern))
+    End Sub
 
     Private Function BuildSonyCompatibleFallbackAudioFilterGraph(audioSource As StreamAudioSourceInfo, silenceInputIndex As Integer) As String
         If audioSource Is Nothing Then
@@ -672,6 +698,23 @@ Public Class StreamRecorderControl
         SaveStreamSettings()
     End Sub
 
+    Private Sub OnRecordingModeChanged(sender As Object, e As EventArgs)
+        UpdateRecordingModeUiState()
+        SaveStreamSettings()
+    End Sub
+
+    Private Function GetSelectedRecordingModeName() As String
+        Return If(TryCast(recordingModeComboBox.SelectedItem, String), RecordingModeIntervalFiles)
+    End Function
+
+    Private Function IsIntervalRecordingModeSelected() As Boolean
+        Return String.Equals(GetSelectedRecordingModeName(), RecordingModeIntervalFiles, StringComparison.OrdinalIgnoreCase)
+    End Function
+
+    Private Sub UpdateRecordingModeUiState()
+        intervalUpDown.Enabled = streamRunner Is Nothing AndAlso Not isStartingRecordingValue AndAlso Not isStoppingRecordingValue AndAlso IsIntervalRecordingModeSelected()
+    End Sub
+
     Private Sub LoadStreamSettings()
         Dim settingsFilePathValue = SettingsFilePath
 
@@ -703,6 +746,10 @@ Public Class StreamRecorderControl
                         End If
                     Case "profile"
                         SelectProfileByName(value)
+                    Case "recordingmode", "mode"
+                        If recordingModeComboBox.Items.Contains(value) Then
+                            recordingModeComboBox.SelectedItem = value
+                        End If
                     Case "interval"
                         Dim parsedInterval As Integer
 
@@ -711,6 +758,8 @@ Public Class StreamRecorderControl
                         End If
                 End Select
             Next
+
+            UpdateRecordingModeUiState()
         Finally
             suppressSettingsSave = False
         End Try
@@ -731,6 +780,7 @@ Public Class StreamRecorderControl
         Dim lines = {
             $"url={urlTextBox.Text.Trim()}",
             $"profile={GetSelectedProfile().DisplayName}",
+            $"recordingMode={GetSelectedRecordingModeName()}",
             $"interval={Decimal.ToInt32(intervalUpDown.Value)}"
         }
 
@@ -938,17 +988,25 @@ Public Class StreamRecorderControl
         Return tempFolder
     End Function
 
-    Private Function CreateDirectFfmbcOutputPath() As String
+    Private Function CreateStreamOutputPattern(outputFolder As String, selectedProfile As StreamRecordingProfile) As String
+        Return Path.Combine(outputFolder, $"Stream_%d%m%Y_%H%M%S{selectedProfile.ContainerExtension}")
+    End Function
+
+    Private Function CreateUniqueStreamOutputPath(outputFolder As String, selectedProfile As StreamRecordingProfile) As String
         Dim timestamp = DateTime.Now.ToString("ddMMyyyy_HHmmss")
-        Dim candidatePath = Path.Combine(OutputFolderPath, $"Stream_{timestamp}{currentDirectFfmbcProfile.ContainerExtension}")
+        Dim candidatePath = Path.Combine(outputFolder, $"Stream_{timestamp}{selectedProfile.ContainerExtension}")
         Dim suffix = 1
 
         While File.Exists(candidatePath)
-            candidatePath = Path.Combine(OutputFolderPath, $"Stream_{timestamp}_{suffix:00}{currentDirectFfmbcProfile.ContainerExtension}")
+            candidatePath = Path.Combine(outputFolder, $"Stream_{timestamp}_{suffix:00}{selectedProfile.ContainerExtension}")
             suffix += 1
         End While
 
         Return candidatePath
+    End Function
+
+    Private Function CreateDirectFfmbcOutputPath() As String
+        Return CreateUniqueStreamOutputPath(OutputFolderPath, currentDirectFfmbcProfile)
     End Function
 
     Private Function ProbePrimaryAudioSource(inputUrls As IReadOnlyList(Of String), ffprobePath As String) As StreamAudioSourceInfo
@@ -1800,7 +1858,8 @@ Public Class StreamRecorderControl
         recordButton.Enabled = Not hasPendingOperation
         stopButton.Enabled = isRecording AndAlso Not isStartingRecordingValue AndAlso Not isStoppingRecordingValue
         urlTextBox.Enabled = Not hasPendingOperation
-        intervalUpDown.Enabled = Not hasPendingOperation
+        recordingModeComboBox.Enabled = Not hasPendingOperation
+        intervalUpDown.Enabled = Not hasPendingOperation AndAlso IsIntervalRecordingModeSelected()
         profileComboBox.Enabled = Not hasPendingOperation
         previewButton.Enabled = Not hasPendingOperation AndAlso previewRunner Is Nothing
         stopPreviewButton.Enabled = Not hasPendingOperation AndAlso previewRunner IsNot Nothing

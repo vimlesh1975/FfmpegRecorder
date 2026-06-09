@@ -10,6 +10,7 @@ Partial Public Class RecorderControl
     Private NotInheritable Class OperatorSettings
         Public Property DeviceName As String
         Public Property ProfileName As String
+        Public Property RecordingModeName As String
         Public Property IntervalSeconds As Integer
         Public Property InputModeName As String
         Public Property PalAspectName As String
@@ -72,6 +73,8 @@ Partial Public Class RecorderControl
     Private Const PalAspect4By3 As String = "4:3"
     Private Const PalAspect16By9 As String = "16:9"
     Private Const NoDeckLinkSourceName As String = "(None)"
+    Private Const RecordingModeIntervalFiles As String = "Interval Files"
+    Private Const RecordingModeSingleFile As String = "Single File"
 
     Private Const PreviewWidth As Integer = 360
     Private Const PreviewHeight As Integer = 202
@@ -134,6 +137,7 @@ Partial Public Class RecorderControl
     Private ReadOnly deviceComboBox As New ComboBox()
     Private ReadOnly deviceValueLabel As New Label()
     Private ReadOnly intervalUpDown As New NumericUpDown()
+    Private ReadOnly recordingModeComboBox As New ComboBox()
     Private ReadOnly profileComboBox As New ComboBox()
     Private ReadOnly inputModeComboBox As New ComboBox()
     Private ReadOnly palAspectComboBox As New ComboBox()
@@ -285,6 +289,38 @@ Partial Public Class RecorderControl
             End If
 
             profileComboBox.SelectedItem = matchingProfile
+        End Set
+    End Property
+
+    <Browsable(False), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)>
+    Public ReadOnly Property AvailableRecordingModeNames As IReadOnlyList(Of String)
+        Get
+            Return recordingModeComboBox.Items.Cast(Of Object)().
+                Select(Function(item) item.ToString()).
+                ToArray()
+        End Get
+    End Property
+
+    <Browsable(False), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)>
+    Public Property SelectedRecordingModeName As String
+        Get
+            Return GetSelectedRecordingModeName()
+        End Get
+        Set(value As String)
+            If String.IsNullOrWhiteSpace(value) Then
+                Return
+            End If
+
+            Dim matchingItem = recordingModeComboBox.Items.
+                Cast(Of Object)().
+                Select(Function(item) item.ToString()).
+                FirstOrDefault(Function(item) String.Equals(item, value, StringComparison.OrdinalIgnoreCase))
+
+            If String.IsNullOrWhiteSpace(matchingItem) Then
+                Return
+            End If
+
+            recordingModeComboBox.SelectedItem = matchingItem
         End Set
     End Property
 
@@ -474,7 +510,7 @@ Partial Public Class RecorderControl
 
         Dim headerRow As New TableLayoutPanel() With {
             .AutoSize = True,
-            .ColumnCount = 6,
+            .ColumnCount = 5,
             .RowCount = 1,
             .Dock = DockStyle.Fill,
             .Margin = New Padding(0)
@@ -482,36 +518,24 @@ Partial Public Class RecorderControl
         headerRow.ColumnStyles.Add(New ColumnStyle(SizeType.AutoSize))
         headerRow.ColumnStyles.Add(New ColumnStyle(SizeType.AutoSize))
         headerRow.ColumnStyles.Add(New ColumnStyle(SizeType.AutoSize))
-        headerRow.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 100.0F))
         headerRow.ColumnStyles.Add(New ColumnStyle(SizeType.AutoSize))
         headerRow.ColumnStyles.Add(New ColumnStyle(SizeType.AutoSize))
         headerRow.RowStyles.Add(New RowStyle(SizeType.AutoSize))
 
-        Dim statusLabel As New Label() With {
-            .AutoSize = True,
-            .Text = "Status:",
-            .Anchor = AnchorStyles.Left,
-            .Margin = New Padding(0, 6, 6, 6)
-        }
-
-        statusValueLabel.AutoSize = True
+        statusValueLabel.AutoEllipsis = True
+        statusValueLabel.AutoSize = False
         statusValueLabel.Text = "Idle"
         statusValueLabel.ForeColor = Color.DarkGreen
         statusValueLabel.Anchor = AnchorStyles.Left
-        statusValueLabel.Margin = New Padding(0, 6, 12, 6)
-
-        Dim profileLabel As New Label() With {
-            .AutoSize = True,
-            .Text = "Profile",
-            .Anchor = AnchorStyles.Left,
-            .Margin = New Padding(0, 6, 6, 6)
-        }
+        statusValueLabel.Margin = New Padding(0, 4, 8, 0)
+        statusValueLabel.Size = New Size(70, 23)
+        statusValueLabel.TextAlign = ContentAlignment.MiddleLeft
 
         profileComboBox.DropDownStyle = ComboBoxStyle.DropDownList
-        profileComboBox.Width = 190
-        profileComboBox.DropDownWidth = 220
+        profileComboBox.Width = 150
+        profileComboBox.DropDownWidth = 240
         profileComboBox.Anchor = AnchorStyles.Left
-        profileComboBox.Margin = New Padding(0, 3, 0, 3)
+        profileComboBox.Margin = New Padding(0, 3, 8, 3)
         profileComboBox.Items.AddRange(New Object() {
             xdcamHd422Profile,
             xdcamSonyCompatibleProfile,
@@ -525,17 +549,28 @@ Partial Public Class RecorderControl
         profileComboBox.SelectedItem = xdcamHd422Profile
         AddHandler profileComboBox.SelectedIndexChanged, AddressOf OnProfileChanged
 
+        recordingModeComboBox.DropDownStyle = ComboBoxStyle.DropDownList
+        recordingModeComboBox.Width = 96
+        recordingModeComboBox.Anchor = AnchorStyles.Left
+        recordingModeComboBox.Margin = New Padding(0, 3, 8, 3)
+        recordingModeComboBox.Items.AddRange(New Object() {
+            RecordingModeIntervalFiles,
+            RecordingModeSingleFile
+        })
+        recordingModeComboBox.SelectedItem = RecordingModeIntervalFiles
+        AddHandler recordingModeComboBox.SelectedIndexChanged, AddressOf OnRecordingModeChanged
+
         Dim intervalLabel As New Label() With {
             .AutoSize = True,
-            .Text = "Interval (s)",
+            .Text = "Sec",
             .Anchor = AnchorStyles.Left,
-            .Margin = New Padding(12, 6, 6, 6)
+            .Margin = New Padding(0, 6, 4, 6)
         }
 
         intervalUpDown.Minimum = 1
         intervalUpDown.Maximum = 3600
         intervalUpDown.Value = 10
-        intervalUpDown.Width = 58
+        intervalUpDown.Width = 50
         intervalUpDown.Anchor = AnchorStyles.Left
         intervalUpDown.Margin = New Padding(0, 3, 0, 3)
         AddHandler intervalUpDown.ValueChanged, AddressOf OnIntervalValueChanged
@@ -662,12 +697,11 @@ Partial Public Class RecorderControl
         AddHandler recordButton.Click, AddressOf StartRecording
         AddHandler stopButton.Click, AddressOf StopRecording
 
-        headerRow.Controls.Add(statusLabel, 0, 0)
-        headerRow.Controls.Add(statusValueLabel, 1, 0)
-        headerRow.Controls.Add(profileLabel, 2, 0)
-        headerRow.Controls.Add(profileComboBox, 3, 0)
-        headerRow.Controls.Add(intervalLabel, 4, 0)
-        headerRow.Controls.Add(intervalUpDown, 5, 0)
+        headerRow.Controls.Add(statusValueLabel, 0, 0)
+        headerRow.Controls.Add(profileComboBox, 1, 0)
+        headerRow.Controls.Add(recordingModeComboBox, 2, 0)
+        headerRow.Controls.Add(intervalLabel, 3, 0)
+        headerRow.Controls.Add(intervalUpDown, 4, 0)
 
         inputRow.Controls.Add(inputModeLabel, 0, 0)
         inputRow.Controls.Add(inputModeComboBox, 1, 0)
@@ -686,6 +720,7 @@ Partial Public Class RecorderControl
         panel.Controls.Add(inputRow, 0, 1)
         panel.Controls.Add(deviceRow, 0, 2)
         panel.Controls.Add(deviceInfoRow, 0, 3)
+        UpdateRecordingModeUiState()
         UpdatePalAspectUiState()
 
         Return panel
@@ -833,8 +868,9 @@ Partial Public Class RecorderControl
         End If
 
         Dim options = CreateDefaultOptions()
+        Dim recordingModeText = If(options.UseIntervalSegments, $"{options.ClipDurationSeconds} s interval", "single file")
 
-        deviceValueLabel.Text = $"{GetRecordingPrefix()} | {options.DeviceName} | {GetSelectedInputSummaryText()} | {options.ClipDurationSeconds} s {GetSelectedRecordingProfile().SummaryText} | L/R dBFS"
+        deviceValueLabel.Text = $"{GetRecordingPrefix()} | {options.DeviceName} | {GetSelectedInputSummaryText()} | {recordingModeText} | {GetSelectedRecordingProfile().SummaryText} | L/R dBFS"
     End Sub
 
     Private Function CreateDefaultOptions() As RecorderOptions
@@ -853,12 +889,21 @@ Partial Public Class RecorderControl
             .VideoFilter = BuildSelectedRecordingVideoFilter(selectedProfile),
             .PreviewVideoFilter = BuildSelectedPreviewVideoFilter(),
             .OutputOptions = selectedProfile.OutputOptions,
-            .UseSonyCompatibleAudioLayout = selectedProfile.UseFfmbcFinalize
+            .UseSonyCompatibleAudioLayout = selectedProfile.UseFfmbcFinalize,
+            .UseIntervalSegments = IsIntervalRecordingModeSelected()
         }
     End Function
 
     Private Function GetSelectedRecordingProfile() As RecordingProfileDefinition
         Return If(TryCast(profileComboBox.SelectedItem, RecordingProfileDefinition), xdcamHd422Profile)
+    End Function
+
+    Private Function GetSelectedRecordingModeName() As String
+        Return If(TryCast(recordingModeComboBox.SelectedItem, String), RecordingModeIntervalFiles)
+    End Function
+
+    Private Function IsIntervalRecordingModeSelected() As Boolean
+        Return String.Equals(GetSelectedRecordingModeName(), RecordingModeIntervalFiles, StringComparison.OrdinalIgnoreCase)
     End Function
 
     Private Function GetSelectedInputModeName() As String
@@ -1000,6 +1045,7 @@ Partial Public Class RecorderControl
         Dim loadedSettings As New OperatorSettings With {
             .DeviceName = GetPreferredDefaultDeviceName(),
             .ProfileName = xdcamHd422Profile.DisplayName,
+            .RecordingModeName = RecordingModeIntervalFiles,
             .IntervalSeconds = 10,
             .InputModeName = DeckLinkInputModeAuto,
             .PalAspectName = PalAspect4By3
@@ -1027,6 +1073,10 @@ Partial Public Class RecorderControl
                 Case "profile"
                     If Not String.IsNullOrWhiteSpace(value) Then
                         loadedSettings.ProfileName = value
+                    End If
+                Case "recordingMode", "mode"
+                    If Not String.IsNullOrWhiteSpace(value) Then
+                        loadedSettings.RecordingModeName = value
                     End If
                 Case "interval"
                     Dim parsedInterval As Integer
@@ -1056,7 +1106,9 @@ Partial Public Class RecorderControl
             savedInputModeValue = If(String.IsNullOrWhiteSpace(settings.InputModeName), DeckLinkInputModeAuto, settings.InputModeName)
             savedPalAspectValue = If(String.IsNullOrWhiteSpace(settings.PalAspectName), PalAspect4By3, settings.PalAspectName)
 
+            Dim selectedRecordingMode = If(String.IsNullOrWhiteSpace(settings.RecordingModeName), RecordingModeIntervalFiles, settings.RecordingModeName)
             Dim clampedInterval = Math.Max(CInt(intervalUpDown.Minimum), Math.Min(CInt(intervalUpDown.Maximum), settings.IntervalSeconds))
+            recordingModeComboBox.SelectedItem = If(recordingModeComboBox.Items.Contains(selectedRecordingMode), selectedRecordingMode, RecordingModeIntervalFiles)
             intervalUpDown.Value = clampedInterval
 
             Dim selectedProfile As RecordingProfileDefinition = Nothing
@@ -1073,6 +1125,7 @@ Partial Public Class RecorderControl
             profileComboBox.SelectedItem = If(selectedProfile, xdcamHd422Profile)
             inputModeComboBox.SelectedItem = If(inputModeComboBox.Items.Contains(savedInputModeValue), savedInputModeValue, DeckLinkInputModeAuto)
             palAspectComboBox.SelectedItem = If(palAspectComboBox.Items.Contains(savedPalAspectValue), savedPalAspectValue, PalAspect4By3)
+            UpdateRecordingModeUiState()
             UpdatePalAspectUiState()
         Finally
             suppressSettingsSave = False
@@ -1098,6 +1151,7 @@ Partial Public Class RecorderControl
         Dim lines = {
             $"device={savedDeviceName}",
             $"profile={GetSelectedRecordingProfile().DisplayName}",
+            $"recordingMode={GetSelectedRecordingModeName()}",
             $"interval={GetSelectedClipDurationSeconds()}",
             $"inputMode={GetSelectedInputModeName()}",
             $"palAspect={GetSelectedPalAspectName()}"
@@ -1528,6 +1582,10 @@ Partial Public Class RecorderControl
         Return Decimal.ToInt32(intervalUpDown.Value)
     End Function
 
+    Private Sub UpdateRecordingModeUiState()
+        intervalUpDown.Enabled = captureRunner Is Nothing AndAlso IsIntervalRecordingModeSelected()
+    End Sub
+
     Private Sub UpdatePalAspectUiState()
         Dim shouldEnablePalAspect = Not String.Equals(GetSelectedInputModeName(), DeckLinkInputModeHd50, StringComparison.OrdinalIgnoreCase)
         palAspectComboBox.Enabled = shouldEnablePalAspect AndAlso captureRunner Is Nothing
@@ -1547,6 +1605,12 @@ Partial Public Class RecorderControl
     End Sub
 
     Private Sub OnIntervalValueChanged(sender As Object, e As EventArgs)
+        UpdateStaticInfo()
+        SaveOperatorSettings()
+    End Sub
+
+    Private Sub OnRecordingModeChanged(sender As Object, e As EventArgs)
+        UpdateRecordingModeUiState()
         UpdateStaticInfo()
         SaveOperatorSettings()
     End Sub
@@ -1664,7 +1728,8 @@ Partial Public Class RecorderControl
             .VideoFilter = sourceOptions.VideoFilter,
             .PreviewVideoFilter = sourceOptions.PreviewVideoFilter,
             .OutputOptions = sourceOptions.OutputOptions,
-            .UseSonyCompatibleAudioLayout = sourceOptions.UseSonyCompatibleAudioLayout
+            .UseSonyCompatibleAudioLayout = sourceOptions.UseSonyCompatibleAudioLayout,
+            .UseIntervalSegments = sourceOptions.UseIntervalSegments
         }
     End Function
 
@@ -2361,13 +2426,22 @@ Partial Public Class RecorderControl
         Directory.CreateDirectory(recordingOptions.OutputFolder)
         StopIdlePreview("Switching to recording preview...", fast:=True)
 
-        Dim outputPattern = recordingOptions.BuildOutputPattern()
-        Dim arguments = recordingOptions.BuildRecordingWithPreviewArguments(outputPattern, previewPort, If(hasAudioMonitor, audioMonitorPort, 0), PreviewWidth, PreviewFrameRate)
+        Dim outputPathOrPattern = If(recordingOptions.UseIntervalSegments, recordingOptions.BuildOutputPattern(), recordingOptions.BuildUniqueOutputPath())
+        Dim arguments = recordingOptions.BuildRecordingWithPreviewArguments(outputPathOrPattern, previewPort, If(hasAudioMonitor, audioMonitorPort, 0), PreviewWidth, PreviewFrameRate)
 
         logTextBox.Clear()
-        AppendLog($"Clip pattern: {outputPattern}")
+        If recordingOptions.UseIntervalSegments Then
+            AppendLog($"Clip pattern: {outputPathOrPattern}")
+        Else
+            AppendLog($"Output file: {outputPathOrPattern}")
+        End If
+
         If currentRecordingUsesFfmbcFinalize Then
-            AppendLog("XDCAM Sony Compatible will finalize completed temp clips with FFmbc in the background while recording.")
+            If recordingOptions.UseIntervalSegments Then
+                AppendLog("XDCAM Sony Compatible will finalize completed temp clips with FFmbc in the background while recording.")
+            Else
+                AppendLog("XDCAM Sony Compatible will finalize the temp file with FFmbc after recording stops.")
+            End If
         End If
 
         Try
@@ -2445,7 +2519,8 @@ Partial Public Class RecorderControl
         Dim isBusy = isRecording
         recordButton.Enabled = deckLinkInputAvailableValue AndAlso Not isBusy
         stopButton.Enabled = isRecording AndAlso Not isStoppingCaptureValue
-        intervalUpDown.Enabled = Not isBusy
+        recordingModeComboBox.Enabled = Not isBusy
+        intervalUpDown.Enabled = Not isBusy AndAlso IsIntervalRecordingModeSelected()
         profileComboBox.Enabled = Not isBusy
         inputModeComboBox.Enabled = Not isBusy
         deviceComboBox.Enabled = Not isBusy

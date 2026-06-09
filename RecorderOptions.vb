@@ -14,6 +14,7 @@ Friend Class RecorderOptions
     Public Property PreviewVideoFilter As String
     Public Property OutputOptions As String
     Public Property UseSonyCompatibleAudioLayout As Boolean
+    Public Property UseIntervalSegments As Boolean = True
 
     Public Function BuildOutputPattern(Optional timestampToken As String = Nothing) As String
         Dim stamp = If(String.IsNullOrWhiteSpace(timestampToken), "%d%m%Y_%H%M%S", timestampToken)
@@ -21,6 +22,23 @@ Friend Class RecorderOptions
         Dim safeExtension = If(String.IsNullOrWhiteSpace(ContainerExtension), ".mov", ContainerExtension.Trim())
 
         Return IO.Path.Combine(OutputFolder, $"{safePrefix}_{stamp}{safeExtension}")
+    End Function
+
+    Public Function BuildUniqueOutputPath() As String
+        Dim stamp = DateTime.Now.ToString("ddMMyyyy_HHmmss")
+        Dim candidatePath = BuildOutputPattern(stamp)
+        Dim directoryPath = IO.Path.GetDirectoryName(candidatePath)
+        Dim baseName = IO.Path.GetFileNameWithoutExtension(candidatePath)
+        Dim extension = IO.Path.GetExtension(candidatePath)
+        Dim suffix = 1
+
+        While IO.File.Exists(candidatePath)
+            Dim suffixedFileName = $"{baseName}_{suffix:00}{extension}"
+            candidatePath = If(String.IsNullOrWhiteSpace(directoryPath), suffixedFileName, IO.Path.Combine(directoryPath, suffixedFileName))
+            suffix += 1
+        End While
+
+        Return candidatePath
     End Function
 
     Public Function BuildArguments(outputPattern As String) As String
@@ -38,15 +56,7 @@ Friend Class RecorderOptions
             builder.Append(OutputOptions.Trim()).Append(" ")
         End If
 
-        AppendSegmentBoundaryKeyframes(builder)
-
-        builder.Append("-f segment ")
-        builder.Append("-segment_time ").Append(Math.Max(1, ClipDurationSeconds)).Append(" ")
-        builder.Append("-reset_timestamps 1 ")
-        builder.Append("-segment_start_number 0 ")
-        builder.Append("-segment_format ").Append(Quote(GetSegmentFormat())).Append(" ")
-        builder.Append("-strftime 1 ")
-        builder.Append(Quote(outputPattern))
+        AppendRecordingOutput(builder, outputPattern)
 
         Return builder.ToString().Trim()
     End Function
@@ -70,15 +80,8 @@ Friend Class RecorderOptions
             builder.Append(OutputOptions.Trim()).Append(" ")
         End If
 
-        AppendSegmentBoundaryKeyframes(builder)
-
-        builder.Append("-f segment ")
-        builder.Append("-segment_time ").Append(Math.Max(1, ClipDurationSeconds)).Append(" ")
-        builder.Append("-reset_timestamps 1 ")
-        builder.Append("-segment_start_number 0 ")
-        builder.Append("-segment_format ").Append(Quote(GetSegmentFormat())).Append(" ")
-        builder.Append("-strftime 1 ")
-        builder.Append(Quote(outputPattern)).Append(" ")
+        AppendRecordingOutput(builder, outputPattern)
+        builder.Append(" ")
 
         builder.Append("-map ").Append(Quote("[preview]")).Append(" ")
         builder.Append("-an -flush_packets 1 -c:v mjpeg -q:v 6 -f mjpeg ")
@@ -250,6 +253,22 @@ Friend Class RecorderOptions
     Private Sub AppendSegmentBoundaryKeyframes(builder As StringBuilder)
         Dim segmentSeconds = Math.Max(1, ClipDurationSeconds)
         builder.Append("-force_key_frames ").Append(Quote($"expr:gte(t,n_forced*{segmentSeconds})")).Append(" ")
+    End Sub
+
+    Private Sub AppendRecordingOutput(builder As StringBuilder, outputPathOrPattern As String)
+        If UseIntervalSegments Then
+            AppendSegmentBoundaryKeyframes(builder)
+            builder.Append("-f segment ")
+            builder.Append("-segment_time ").Append(Math.Max(1, ClipDurationSeconds)).Append(" ")
+            builder.Append("-reset_timestamps 1 ")
+            builder.Append("-segment_start_number 0 ")
+            builder.Append("-segment_format ").Append(Quote(GetSegmentFormat())).Append(" ")
+            builder.Append("-strftime 1 ")
+            builder.Append(Quote(outputPathOrPattern))
+            Return
+        End If
+
+        builder.Append(Quote(outputPathOrPattern))
     End Sub
 
     Private Sub AppendInputArguments(builder As StringBuilder)

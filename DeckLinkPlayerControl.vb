@@ -411,7 +411,7 @@ Public Class DeckLinkPlayerControl
         speedButtonsPanel.Dock = DockStyle.Fill
         speedButtonsPanel.FlowDirection = FlowDirection.LeftToRight
         speedButtonsPanel.Margin = New Padding(0, 2, 0, 0)
-        speedButtonsPanel.WrapContents = True
+        speedButtonsPanel.WrapContents = False
         For Each speed In New Double() {-20.0R, -10.0R, -5.0R, -2.0R, -1.5R, -1.0R, -0.5R, 0.0R, 0.5R, 1.0R, 1.5R, 2.0R, 5.0R, 10.0R, 20.0R}
             AddSpeedPresetButton(speed)
         Next
@@ -505,11 +505,13 @@ Public Class DeckLinkPlayerControl
     End Sub
 
     Private Sub AddSpeedPresetButton(speed As Double)
+        Dim buttonText = FormatPlaybackSpeed(speed)
+        Dim buttonWidth = If(buttonText.Length >= 5, 52, If(buttonText.Length >= 4, 46, 42))
         Dim button As New Button() With {
-            .Margin = New Padding(0, 0, 4, 4),
-            .Size = New Size(If(Math.Abs(speed) = 0.5R OrElse Math.Abs(speed) = 1.5R, 56, 48), 26),
+            .Margin = New Padding(0, 0, 2, 0),
+            .Size = New Size(buttonWidth, 26),
             .Tag = speed,
-            .Text = FormatPlaybackSpeed(speed),
+            .Text = buttonText,
             .UseVisualStyleBackColor = True
         }
 

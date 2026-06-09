@@ -33,6 +33,8 @@ Partial Public Class RecorderHostForm
     Private ReadOnly inputModeComboBox As New ComboBox()
     Private ReadOnly palAspectLabel As New Label()
     Private ReadOnly palAspectComboBox As New ComboBox()
+    Private ReadOnly recordingModeLabel As New Label()
+    Private ReadOnly recordingModeComboBox As New ComboBox()
     Private isAdjustingCommonHeaderHeight As Boolean
     Private hasSystemCpuSample As Boolean
     Private lastSystemCpuSample As SystemCpuSample
@@ -60,6 +62,7 @@ Partial Public Class RecorderHostForm
         AddHandler recordingDriveFreeSpaceTimer.Tick, AddressOf OnRecordingDriveFreeSpaceTimerTick
         AddHandler audioListenComboBox.SelectedIndexChanged, AddressOf OnAudioListenSelectionChanged
         AddHandler profileComboBox.SelectedIndexChanged, AddressOf OnSharedProfileChanged
+        AddHandler recordingModeComboBox.SelectedIndexChanged, AddressOf OnSharedRecordingModeChanged
         AddHandler intervalUpDown.ValueChanged, AddressOf OnSharedIntervalChanged
         AddHandler inputModeComboBox.SelectedIndexChanged, AddressOf OnSharedInputModeChanged
         AddHandler palAspectComboBox.SelectedIndexChanged, AddressOf OnSharedPalAspectChanged
@@ -77,6 +80,8 @@ Partial Public Class RecorderHostForm
 
         profileComboBox.Items.Clear()
         profileComboBox.Items.AddRange(leftRecorderControl.AvailableProfileNames.ToArray())
+        recordingModeComboBox.Items.Clear()
+        recordingModeComboBox.Items.AddRange(leftRecorderControl.AvailableRecordingModeNames.ToArray())
         inputModeComboBox.Items.Clear()
         inputModeComboBox.Items.AddRange(leftRecorderControl.AvailableInputModeNames.ToArray())
         palAspectComboBox.Items.Clear()
@@ -118,7 +123,7 @@ Partial Public Class RecorderHostForm
             .WrapContents = True
         }
 
-        leftSectionPanel.Controls.Add(BuildCommonSection("Setup", profileLabel, profileComboBox, intervalLabel, intervalUpDown, inputModeLabel, inputModeComboBox, palAspectLabel, palAspectComboBox))
+        leftSectionPanel.Controls.Add(BuildCommonSection("Setup", profileLabel, profileComboBox, recordingModeLabel, recordingModeComboBox, intervalLabel, intervalUpDown, inputModeLabel, inputModeComboBox, palAspectLabel, palAspectComboBox))
         leftSectionPanel.Controls.Add(BuildCommonSection("Recording", recordAllButton, stopAllButton, openRecordingsButton, deleteAllButton))
         leftSectionPanel.Controls.Add(BuildCommonSection("Folder", recordingDirectoryPanel))
         leftSectionPanel.Controls.Add(BuildCommonSection("Audio", audioListenPanel))
@@ -187,6 +192,16 @@ Partial Public Class RecorderHostForm
     End Sub
 
     Private Sub InitializeSharedDeckLinkControls()
+        recordingModeLabel.AutoSize = True
+        recordingModeLabel.Font = New Font("Segoe UI", 9.0F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
+        recordingModeLabel.Margin = New Padding(0, 4, 6, 0)
+        recordingModeLabel.Text = "Mode"
+
+        recordingModeComboBox.DropDownStyle = ComboBoxStyle.DropDownList
+        recordingModeComboBox.Font = New Font("Segoe UI", 9.0F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
+        recordingModeComboBox.Margin = New Padding(0)
+        recordingModeComboBox.Size = New Size(104, 23)
+
         inputModeLabel.AutoSize = True
         inputModeLabel.Font = New Font("Segoe UI", 9.0F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
         inputModeLabel.Margin = New Padding(0, 4, 6, 0)
@@ -519,6 +534,24 @@ Partial Public Class RecorderHostForm
         Next
     End Sub
 
+    Private Sub OnSharedRecordingModeChanged(sender As Object, e As EventArgs)
+        If suppressSharedOperatorEvents Then
+            Return
+        End If
+
+        Dim selectedRecordingModeName = TryCast(recordingModeComboBox.SelectedItem, String)
+
+        If String.IsNullOrWhiteSpace(selectedRecordingModeName) Then
+            Return
+        End If
+
+        For Each recorderControl In GetRecorderControls()
+            recorderControl.SelectedRecordingModeName = selectedRecordingModeName
+        Next
+
+        UpdateSharedRecordingModeUiState()
+    End Sub
+
     Private Sub OnSharedIntervalChanged(sender As Object, e As EventArgs)
         If suppressSharedOperatorEvents Then
             Return
@@ -529,6 +562,11 @@ Partial Public Class RecorderHostForm
         For Each recorderControl In GetRecorderControls()
             recorderControl.ClipIntervalSeconds = intervalSeconds
         Next
+    End Sub
+
+    Private Sub UpdateSharedRecordingModeUiState()
+        Dim selectedRecordingModeName = TryCast(recordingModeComboBox.SelectedItem, String)
+        intervalUpDown.Enabled = String.Equals(selectedRecordingModeName, "Interval Files", StringComparison.OrdinalIgnoreCase)
     End Sub
 
     Private Sub OnSharedInputModeChanged(sender As Object, e As EventArgs)
@@ -788,14 +826,17 @@ Partial Public Class RecorderHostForm
 
         Try
             profileComboBox.SelectedItem = sourceRecorder.SelectedProfileName
+            recordingModeComboBox.SelectedItem = sourceRecorder.SelectedRecordingModeName
             intervalUpDown.Value = Math.Max(intervalUpDown.Minimum, Math.Min(intervalUpDown.Maximum, sourceRecorder.ClipIntervalSeconds))
             inputModeComboBox.SelectedItem = sourceRecorder.SelectedInputModeName
             palAspectComboBox.SelectedItem = sourceRecorder.SelectedPalAspectName
+            UpdateSharedRecordingModeUiState()
         Finally
             suppressSharedOperatorEvents = False
         End Try
 
         OnSharedProfileChanged(Me, EventArgs.Empty)
+        OnSharedRecordingModeChanged(Me, EventArgs.Empty)
         OnSharedIntervalChanged(Me, EventArgs.Empty)
         OnSharedInputModeChanged(Me, EventArgs.Empty)
         OnSharedPalAspectChanged(Me, EventArgs.Empty)
