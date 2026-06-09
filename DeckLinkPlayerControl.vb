@@ -96,6 +96,7 @@ Public Class DeckLinkPlayerControl
     Private ReadOnly previewButton As New Button()
     Private ReadOnly stopPreviewButton As New Button()
     Private ReadOnly selectedFileLabel As New Label()
+    Private ReadOnly previewStateHostPanel As New Panel()
     Private ReadOnly speedButtonsPanel As New FlowLayoutPanel()
     Private ReadOnly speedSeekPanel As New TableLayoutPanel()
     Private ReadOnly speedTrackBar As New TrackBar()
@@ -240,10 +241,10 @@ Public Class DeckLinkPlayerControl
         rootLayout.RowCount = 5
         rootLayout.RowStyles.Add(New RowStyle(SizeType.Absolute, 32.0F))
         rootLayout.RowStyles.Add(New RowStyle(SizeType.Absolute, 36.0F))
-        rootLayout.RowStyles.Add(New RowStyle(SizeType.Absolute, 282.0F))
-        rootLayout.RowStyles.Add(New RowStyle(SizeType.Absolute, 452.0F))
+        rootLayout.RowStyles.Add(New RowStyle(SizeType.Absolute, 226.0F))
+        rootLayout.RowStyles.Add(New RowStyle(SizeType.Absolute, 558.0F))
         rootLayout.RowStyles.Add(New RowStyle(SizeType.Absolute, 24.0F))
-        rootLayout.Size = New Size(760, 850)
+        rootLayout.Size = New Size(760, 892)
 
         toolbarPanel.ColumnCount = 4
         toolbarPanel.ColumnStyles.Add(New ColumnStyle(SizeType.AutoSize))
@@ -323,7 +324,7 @@ Public Class DeckLinkPlayerControl
         browserSplit.Dock = DockStyle.Fill
         browserSplit.Margin = New Padding(0, 0, 0, 8)
         browserSplit.Orientation = Orientation.Vertical
-        browserSplit.Size = New Size(744, 310)
+        browserSplit.Size = New Size(744, 226)
         browserSplit.Panel1MinSize = 140
         browserSplit.Panel2MinSize = 180
         browserSplit.SplitterDistance = 185
@@ -386,19 +387,32 @@ Public Class DeckLinkPlayerControl
         selectedFileLabel.AutoEllipsis = True
         selectedFileLabel.AutoSize = False
         selectedFileLabel.Margin = New Padding(0, 6, 0, 0)
-        selectedFileLabel.Size = New Size(560, 20)
+        selectedFileLabel.Size = New Size(380, 20)
         selectedFileLabel.Text = "Select a file in the grid, then Play or double-click."
         selectedFileLabel.TextAlign = ContentAlignment.MiddleLeft
 
+        previewStateHostPanel.Margin = New Padding(0, 0, 10, 0)
+        previewStateHostPanel.Size = New Size(150, 28)
+
+        previewStateLabel.AutoEllipsis = True
+        previewStateLabel.AutoSize = False
+        previewStateLabel.BackColor = Color.Transparent
+        previewStateLabel.Dock = DockStyle.Fill
+        previewStateLabel.Margin = New Padding(0)
+        previewStateLabel.Text = "Preview stopped"
+        previewStateLabel.TextAlign = ContentAlignment.MiddleLeft
+        previewStateHostPanel.Controls.Add(previewStateLabel)
+
         previewToolbarPanel.Controls.Add(previewButton)
         previewToolbarPanel.Controls.Add(stopPreviewButton)
+        previewToolbarPanel.Controls.Add(previewStateHostPanel)
         previewToolbarPanel.Controls.Add(selectedFileLabel)
 
         speedButtonsPanel.Dock = DockStyle.Fill
         speedButtonsPanel.FlowDirection = FlowDirection.LeftToRight
         speedButtonsPanel.Margin = New Padding(0, 2, 0, 0)
         speedButtonsPanel.WrapContents = True
-        For Each speed In New Double() {-20.0R, -10.0R, -5.0R, -2.0R, -1.5R, -1.0R, -0.5R, 0.5R, 1.0R, 1.5R, 2.0R, 5.0R, 10.0R, 20.0R}
+        For Each speed In New Double() {-20.0R, -10.0R, -5.0R, -2.0R, -1.5R, -1.0R, -0.5R, 0.0R, 0.5R, 1.0R, 1.5R, 2.0R, 5.0R, 10.0R, 20.0R}
             AddSpeedPresetButton(speed)
         Next
 
@@ -436,20 +450,11 @@ Public Class DeckLinkPlayerControl
         previewPictureBox.Margin = New Padding(0)
         previewPictureBox.SizeMode = PictureBoxSizeMode.Zoom
 
-        previewStateLabel.AutoSize = False
-        previewStateLabel.BackColor = Color.FromArgb(160, 0, 0, 0)
-        previewStateLabel.Dock = DockStyle.Top
-        previewStateLabel.ForeColor = Color.White
-        previewStateLabel.Height = 24
-        previewStateLabel.Text = "Preview stopped"
-        previewStateLabel.TextAlign = ContentAlignment.MiddleCenter
-
         Dim previewSurface As New Panel() With {
             .Dock = DockStyle.Fill,
             .Margin = New Padding(0)
         }
         previewSurface.Controls.Add(previewPictureBox)
-        previewSurface.Controls.Add(previewStateLabel)
 
         scrubberPanel.ColumnCount = 2
         scrubberPanel.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 100.0F))
@@ -725,7 +730,7 @@ Public Class DeckLinkPlayerControl
         End If
 
         Dim selectedSpeed = NormalizePlaybackSpeed(Convert.ToDouble(clickedButton.Tag, CultureInfo.InvariantCulture))
-        Await SetPlaybackSpeedAsync(selectedSpeed, restartIfPlaying:=True)
+        Await SetPlaybackSpeedAsync(selectedSpeed, restartIfPlaying:=True, startIfStopped:=Math.Abs(selectedSpeed) >= 0.001R)
     End Sub
 
     Private Async Sub OnSpeedTrackBarValueChanged(sender As Object, e As EventArgs)
@@ -736,12 +741,20 @@ Public Class DeckLinkPlayerControl
         Await SetPlaybackSpeedAsync(NormalizePlaybackSpeed(speedTrackBar.Value / 10.0R), restartIfPlaying:=True)
     End Sub
 
-    Private Async Function SetPlaybackSpeedAsync(selectedSpeed As Double, restartIfPlaying As Boolean) As Task
+    Private Async Function SetPlaybackSpeedAsync(selectedSpeed As Double, restartIfPlaying As Boolean, Optional startIfStopped As Boolean = False) As Task
         selectedSpeed = NormalizePlaybackSpeed(selectedSpeed)
         Dim wasPlaying = IsPlaybackActive()
+        Dim shouldStartPlayback = startIfStopped AndAlso Not wasPlaying AndAlso Math.Abs(selectedSpeed) >= 0.001R
 
         If Math.Abs(playbackSpeedMultiplier - selectedSpeed) < 0.001R Then
             UpdateSpeedControls()
+
+            If shouldStartPlayback Then
+                playbackStartOffset = GetScrubberOffset()
+                Dim startFilePath = If(IsScrubberLoaded(), scrubberLoadedFilePath, Nothing)
+                Await StartSelectedPlaybackAsync(filePathOverride:=startFilePath)
+            End If
+
             Return
         End If
 
@@ -749,7 +762,7 @@ Public Class DeckLinkPlayerControl
         UpdateSpeedControls()
         SetStatus($"Playback speed: {FormatPlaybackSpeed(playbackSpeedMultiplier)}")
 
-        If Not restartIfPlaying OrElse Not wasPlaying Then
+        If Not restartIfPlaying OrElse (Not wasPlaying AndAlso Not startIfStopped) Then
             Return
         End If
 
@@ -1772,7 +1785,7 @@ Public Class DeckLinkPlayerControl
         End Try
     End Function
 
-    Private Async Function StopPreviewAsync(Optional clearImage As Boolean = False) As Task
+    Private Async Function StopPreviewAsync(Optional clearImage As Boolean = False, Optional showStateLabel As Boolean = True) As Task
         Dim runner = previewRunner
 
         If runner Is Nothing OrElse isStoppingPreview Then
@@ -1785,8 +1798,14 @@ Public Class DeckLinkPlayerControl
 
         isStoppingPreview = True
         previewRunner = Nothing
-        previewStateLabel.Text = "Stopping preview..."
-        previewStateLabel.Visible = True
+
+        If showStateLabel Then
+            previewStateLabel.Text = "Stopping preview..."
+            previewStateLabel.Visible = True
+        Else
+            previewStateLabel.Visible = False
+        End If
+
         UpdatePreviewButtons()
 
         Try
@@ -1802,7 +1821,13 @@ Public Class DeckLinkPlayerControl
                 ClearPreviewImage()
             End If
 
-            previewStateLabel.Text = "Preview stopped"
+            If showStateLabel OrElse clearImage Then
+                previewStateLabel.Text = "Preview stopped"
+                previewStateLabel.Visible = True
+            Else
+                previewStateLabel.Visible = False
+            End If
+
             UpdatePreviewButtons()
         End Try
     End Function
@@ -1968,7 +1993,7 @@ Public Class DeckLinkPlayerControl
         currentScrubFrameCancellation?.Cancel()
         TearDownAudioMonitor(fast:=True)
         Await StopOutputAsync()
-        Await StopPreviewAsync(clearImage)
+        Await StopPreviewAsync(clearImage, showStateLabel:=clearImage)
     End Function
 
     Private Async Function StopPlaybackForScrubAsync(Optional clearImage As Boolean = False, Optional stopDeckLinkOutput As Boolean = True) As Task
@@ -1979,7 +2004,7 @@ Public Class DeckLinkPlayerControl
             Await StopOutputAsync()
         End If
 
-        Await StopPreviewAsync(clearImage)
+        Await StopPreviewAsync(clearImage, showStateLabel:=clearImage)
     End Function
 
     Private Sub StartAudioMonitor(filePath As String, startOffset As TimeSpan, playbackSpeed As Double)
@@ -2056,14 +2081,15 @@ Public Class DeckLinkPlayerControl
         Dim speedNumber = FormatFilterNumber(normalizedSpeed)
         Dim audioSpeedFilter = BuildAudioSpeedFilterChain(normalizedSpeed)
         Dim audioFilterPrefix = If(String.IsNullOrWhiteSpace(audioSpeedFilter), String.Empty, audioSpeedFilter & ",")
+        Dim meterRailFilter = BuildAudioMeterRailFilter(meterOutputWidth)
         Dim audioInputLabel = If(hasAudioStream, "[0:a]", "[1:a]")
         Dim rightMeterPan = "mono|c0=c1"
         Dim filterGraph = $"{audioInputLabel}{audioFilterPrefix}aresample=48000,aformat=sample_fmts=s16:channel_layouts=stereo,apad,asetpts=N/SR/TB,asplit=2[left_meter_src][right_meter_src];" &
             $"[0:v]setpts=PTS/{speedNumber},scale={previewWidth}:{previewHeight}:force_original_aspect_ratio=decrease,pad={previewWidth}:{previewHeight}:(ow-iw)/2:(oh-ih)/2,fps=25,setpts=N/(25*TB),format=yuv420p[video];" &
             $"[left_meter_src]pan=mono|c0=c0,showvolume=r=25:w={meterChannelWidth}:h={previewHeight}:f=0.92:b=2:t=0:v=1:dm=1:o=v:ds=log:p=0.18:m=r[left_bar_src];" &
-            $"[left_bar_src]scale={meterOutputWidth}:{previewHeight},format=yuv420p[left_bar];" &
+            $"[left_bar_src]scale={meterOutputWidth}:{previewHeight},format=yuv420p,{meterRailFilter}[left_bar];" &
             $"[right_meter_src]pan={rightMeterPan},showvolume=r=25:w={meterChannelWidth}:h={previewHeight}:f=0.92:b=2:t=0:v=1:dm=1:o=v:ds=log:p=0.18:m=r[right_bar_src];" &
-            $"[right_bar_src]scale={meterOutputWidth}:{previewHeight},format=yuv420p[right_bar];" &
+            $"[right_bar_src]scale={meterOutputWidth}:{previewHeight},format=yuv420p,{meterRailFilter}[right_bar];" &
             "[left_bar][video][right_bar]hstack=inputs=3:shortest=1[out]"
         Dim builder As New StringBuilder()
 
@@ -2175,6 +2201,17 @@ Public Class DeckLinkPlayerControl
     Private Shared Function BuildStillPreviewFrameArguments(filePath As String, startOffset As TimeSpan) As String
         Dim previewWidth = 900
         Dim previewHeight = 540
+        Dim meterChannelWidth = 96
+        Dim meterOutputWidth = 30
+        Dim meterRailFilter = BuildAudioMeterRailFilter(meterOutputWidth)
+        Dim rightMeterPan = "mono|c0=c1"
+        Dim stillPreviewFilter = $"[1:a]aresample=48000,aformat=sample_fmts=s16:channel_layouts=stereo,asetpts=N/SR/TB,asplit=2[left_meter_src][right_meter_src];" &
+            $"[0:v]scale={previewWidth}:{previewHeight}:force_original_aspect_ratio=decrease,pad={previewWidth}:{previewHeight}:(ow-iw)/2:(oh-ih)/2,format=yuv420p[video];" &
+            $"[left_meter_src]pan=mono|c0=c0,showvolume=r=25:w={meterChannelWidth}:h={previewHeight}:f=0.92:b=2:t=0:v=1:dm=1:o=v:ds=log:p=0.18:m=r[left_bar_src];" &
+            $"[left_bar_src]scale={meterOutputWidth}:{previewHeight},format=yuv420p,{meterRailFilter}[left_bar];" &
+            $"[right_meter_src]pan={rightMeterPan},showvolume=r=25:w={meterChannelWidth}:h={previewHeight}:f=0.92:b=2:t=0:v=1:dm=1:o=v:ds=log:p=0.18:m=r[right_bar_src];" &
+            $"[right_bar_src]scale={meterOutputWidth}:{previewHeight},format=yuv420p,{meterRailFilter}[right_bar];" &
+            "[left_bar][video][right_bar]hstack=inputs=3:shortest=1[out]"
         Dim builder As New StringBuilder("-hide_banner -loglevel error ")
 
         If startOffset > TimeSpan.Zero AndAlso Not IsImageFile(filePath) Then
@@ -2186,11 +2223,16 @@ Public Class DeckLinkPlayerControl
         End If
 
         builder.Append("-i ").Append(Quote(filePath)).Append(" ")
-        builder.Append("-map 0:v:0 ")
+        builder.Append("-f lavfi -i anullsrc=channel_layout=stereo:sample_rate=48000 ")
+        builder.Append("-filter_complex ").Append(Quote(stillPreviewFilter)).Append(" ")
+        builder.Append("-map ").Append(Quote("[out]")).Append(" ")
         builder.Append("-frames:v 1 ")
-        builder.Append("-vf ").Append(Quote($"scale={previewWidth}:{previewHeight}:force_original_aspect_ratio=decrease,pad={previewWidth}:{previewHeight}:(ow-iw)/2:(oh-ih)/2,format=yuvj420p")).Append(" ")
         builder.Append("-an -c:v mjpeg -q:v 3 -f image2pipe pipe:1")
         Return builder.ToString()
+    End Function
+
+    Private Shared Function BuildAudioMeterRailFilter(meterOutputWidth As Integer) As String
+        Return "drawbox=x=0:y=0:w=iw:h=ih:color=0x56616d:t=2"
     End Function
 
     Private Shared Function ProbeHasAudioStream(filePath As String) As Boolean
@@ -2502,6 +2544,7 @@ Public Class DeckLinkPlayerControl
         toolbarPanel.BackColor = background
         outputPanel.BackColor = background
         previewToolbarPanel.BackColor = background
+        previewStateHostPanel.BackColor = background
         speedButtonsPanel.BackColor = background
         speedSeekPanel.BackColor = background
         previewPanel.BackColor = background
@@ -2510,6 +2553,7 @@ Public Class DeckLinkPlayerControl
         folderLabel.ForeColor = foreground
         outputDeviceLabel.ForeColor = foreground
         outputModeLabel.ForeColor = foreground
+        previewStateLabel.ForeColor = secondaryForeground
         selectedFileLabel.ForeColor = secondaryForeground
         speedValueLabel.ForeColor = secondaryForeground
         statusLabel.ForeColor = secondaryForeground

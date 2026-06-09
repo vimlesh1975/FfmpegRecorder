@@ -243,8 +243,9 @@ It provides:
 - Play and Stop controls directly below the scrubber.
 - NLE-style scrub preview.
 - Mouse-up after scrubbing resumes playback from the scrub position.
-- Speed preset buttons: `-20x`, `-10x`, `-5x`, `-2x`, `-1.5x`, `-1x`, `-0.5x`, `+0.5x`, `+1x`, `+1.5x`, `+2x`, `+5x`, `+10x`, `+20x`.
+- Speed preset buttons: `-20x`, `-10x`, `-5x`, `-2x`, `-1.5x`, `-1x`, `-0.5x`, `0x`, `+0.5x`, `+1x`, `+1.5x`, `+2x`, `+5x`, `+10x`, `+20x`.
 - Speed seekbar from `-20x` to `+20x`.
+- Non-zero speed preset buttons start playback at that speed.
 - `0x` speed holds the current frame.
 - Persistent `Listen Audio` support for player audio monitoring.
 - Persistent SDI output device/mode selection.
