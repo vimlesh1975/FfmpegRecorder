@@ -1,6 +1,6 @@
 # FfmpegRecorder
 
-![alt text](image.png)
+![alt text](image-1.png)
 
 Windows x64 WinForms recorder and DeckLink playout tool.
 
