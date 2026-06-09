@@ -73,8 +73,8 @@ Partial Public Class RecorderControl
     Private Const PalAspect4By3 As String = "4:3"
     Private Const PalAspect16By9 As String = "16:9"
     Private Const NoDeckLinkSourceName As String = "(None)"
-    Private Const RecordingModeIntervalFiles As String = "Interval Files"
-    Private Const RecordingModeSingleFile As String = "Single File"
+    Private Const RecordingModeIntervalFiles As String = "Interval Record"
+    Private Const RecordingModeSingleFile As String = "Infinite Record"
 
     Private Const PreviewWidth As Integer = 360
     Private Const PreviewHeight As Integer = 202
@@ -136,6 +136,7 @@ Partial Public Class RecorderControl
     Private ReadOnly recordingElapsedLabel As New Label()
     Private ReadOnly deviceComboBox As New ComboBox()
     Private ReadOnly deviceValueLabel As New Label()
+    Private ReadOnly intervalLabel As New Label()
     Private ReadOnly intervalUpDown As New NumericUpDown()
     Private ReadOnly recordingModeComboBox As New ComboBox()
     Private ReadOnly profileComboBox As New ComboBox()
@@ -311,10 +312,11 @@ Partial Public Class RecorderControl
                 Return
             End If
 
+            Dim normalizedValue = NormalizeRecordingModeName(value)
             Dim matchingItem = recordingModeComboBox.Items.
                 Cast(Of Object)().
                 Select(Function(item) item.ToString()).
-                FirstOrDefault(Function(item) String.Equals(item, value, StringComparison.OrdinalIgnoreCase))
+                FirstOrDefault(Function(item) String.Equals(item, normalizedValue, StringComparison.OrdinalIgnoreCase))
 
             If String.IsNullOrWhiteSpace(matchingItem) Then
                 Return
@@ -528,11 +530,11 @@ Partial Public Class RecorderControl
         statusValueLabel.ForeColor = Color.DarkGreen
         statusValueLabel.Anchor = AnchorStyles.Left
         statusValueLabel.Margin = New Padding(0, 4, 8, 0)
-        statusValueLabel.Size = New Size(70, 23)
+        statusValueLabel.Size = New Size(54, 23)
         statusValueLabel.TextAlign = ContentAlignment.MiddleLeft
 
         profileComboBox.DropDownStyle = ComboBoxStyle.DropDownList
-        profileComboBox.Width = 150
+        profileComboBox.Width = 164
         profileComboBox.DropDownWidth = 240
         profileComboBox.Anchor = AnchorStyles.Left
         profileComboBox.Margin = New Padding(0, 3, 8, 3)
@@ -550,7 +552,7 @@ Partial Public Class RecorderControl
         AddHandler profileComboBox.SelectedIndexChanged, AddressOf OnProfileChanged
 
         recordingModeComboBox.DropDownStyle = ComboBoxStyle.DropDownList
-        recordingModeComboBox.Width = 96
+        recordingModeComboBox.Width = 120
         recordingModeComboBox.Anchor = AnchorStyles.Left
         recordingModeComboBox.Margin = New Padding(0, 3, 8, 3)
         recordingModeComboBox.Items.AddRange(New Object() {
@@ -560,12 +562,10 @@ Partial Public Class RecorderControl
         recordingModeComboBox.SelectedItem = RecordingModeIntervalFiles
         AddHandler recordingModeComboBox.SelectedIndexChanged, AddressOf OnRecordingModeChanged
 
-        Dim intervalLabel As New Label() With {
-            .AutoSize = True,
-            .Text = "Sec",
-            .Anchor = AnchorStyles.Left,
-            .Margin = New Padding(0, 6, 4, 6)
-        }
+        intervalLabel.AutoSize = True
+        intervalLabel.Text = "Sec"
+        intervalLabel.Anchor = AnchorStyles.Left
+        intervalLabel.Margin = New Padding(0, 6, 4, 6)
 
         intervalUpDown.Minimum = 1
         intervalUpDown.Maximum = 3600
@@ -906,6 +906,18 @@ Partial Public Class RecorderControl
         Return String.Equals(GetSelectedRecordingModeName(), RecordingModeIntervalFiles, StringComparison.OrdinalIgnoreCase)
     End Function
 
+    Private Shared Function NormalizeRecordingModeName(value As String) As String
+        If String.Equals(value, "Single File", StringComparison.OrdinalIgnoreCase) Then
+            Return RecordingModeSingleFile
+        End If
+
+        If String.Equals(value, "Interval Files", StringComparison.OrdinalIgnoreCase) Then
+            Return RecordingModeIntervalFiles
+        End If
+
+        Return If(String.IsNullOrWhiteSpace(value), RecordingModeIntervalFiles, value.Trim())
+    End Function
+
     Private Function GetSelectedInputModeName() As String
         Return If(TryCast(inputModeComboBox.SelectedItem, String), DeckLinkInputModeAuto)
     End Function
@@ -1106,7 +1118,7 @@ Partial Public Class RecorderControl
             savedInputModeValue = If(String.IsNullOrWhiteSpace(settings.InputModeName), DeckLinkInputModeAuto, settings.InputModeName)
             savedPalAspectValue = If(String.IsNullOrWhiteSpace(settings.PalAspectName), PalAspect4By3, settings.PalAspectName)
 
-            Dim selectedRecordingMode = If(String.IsNullOrWhiteSpace(settings.RecordingModeName), RecordingModeIntervalFiles, settings.RecordingModeName)
+            Dim selectedRecordingMode = NormalizeRecordingModeName(settings.RecordingModeName)
             Dim clampedInterval = Math.Max(CInt(intervalUpDown.Minimum), Math.Min(CInt(intervalUpDown.Maximum), settings.IntervalSeconds))
             recordingModeComboBox.SelectedItem = If(recordingModeComboBox.Items.Contains(selectedRecordingMode), selectedRecordingMode, RecordingModeIntervalFiles)
             intervalUpDown.Value = clampedInterval
@@ -1583,7 +1595,10 @@ Partial Public Class RecorderControl
     End Function
 
     Private Sub UpdateRecordingModeUiState()
-        intervalUpDown.Enabled = captureRunner Is Nothing AndAlso IsIntervalRecordingModeSelected()
+        Dim showInterval = IsIntervalRecordingModeSelected()
+        intervalLabel.Visible = showInterval
+        intervalUpDown.Visible = showInterval
+        intervalUpDown.Enabled = captureRunner Is Nothing AndAlso showInterval
     End Sub
 
     Private Sub UpdatePalAspectUiState()
@@ -2520,7 +2535,8 @@ Partial Public Class RecorderControl
         recordButton.Enabled = deckLinkInputAvailableValue AndAlso Not isBusy
         stopButton.Enabled = isRecording AndAlso Not isStoppingCaptureValue
         recordingModeComboBox.Enabled = Not isBusy
-        intervalUpDown.Enabled = Not isBusy AndAlso IsIntervalRecordingModeSelected()
+        UpdateRecordingModeUiState()
+        intervalUpDown.Enabled = Not isBusy AndAlso intervalUpDown.Visible
         profileComboBox.Enabled = Not isBusy
         inputModeComboBox.Enabled = Not isBusy
         deviceComboBox.Enabled = Not isBusy

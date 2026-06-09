@@ -9,8 +9,8 @@ Public Class StreamRecorderControl
     Inherits UserControl
 
     Private Const PreviewAudioDelayMilliseconds As Integer = 700
-    Private Const RecordingModeIntervalFiles As String = "Interval Files"
-    Private Const RecordingModeSingleFile As String = "Single File"
+    Private Const RecordingModeIntervalFiles As String = "Interval Record"
+    Private Const RecordingModeSingleFile As String = "Infinite Record"
 
     Private NotInheritable Class StreamRecordingProfile
         Public Sub New(displayName As String, containerExtension As String, outputOptions As String, Optional useFfmbcFinalize As Boolean = False)
@@ -57,6 +57,7 @@ Public Class StreamRecorderControl
     Private ReadOnly urlTextBox As New TextBox()
     Private ReadOnly profileComboBox As New ComboBox()
     Private ReadOnly recordingModeComboBox As New ComboBox()
+    Private ReadOnly intervalLabel As New Label()
     Private ReadOnly intervalUpDown As New NumericUpDown()
     Private ReadOnly previewButton As New Button()
     Private ReadOnly stopPreviewButton As New Button()
@@ -253,11 +254,9 @@ Public Class StreamRecorderControl
             .WrapContents = True
         }
 
-        Dim intervalLabel As New Label() With {
-            .AutoSize = True,
-            .Text = "Interval (s)",
-            .Margin = New Padding(0, 6, 6, 0)
-        }
+        intervalLabel.AutoSize = True
+        intervalLabel.Text = "Interval (s)"
+        intervalLabel.Margin = New Padding(0, 6, 6, 0)
 
         Dim recordingModeLabel As New Label() With {
             .AutoSize = True,
@@ -271,7 +270,7 @@ Public Class StreamRecorderControl
             RecordingModeSingleFile
         })
         recordingModeComboBox.SelectedItem = RecordingModeIntervalFiles
-        recordingModeComboBox.Width = 108
+        recordingModeComboBox.Width = 126
         recordingModeComboBox.Margin = New Padding(0, 3, 12, 0)
 
         intervalUpDown.Minimum = 1
@@ -711,8 +710,23 @@ Public Class StreamRecorderControl
         Return String.Equals(GetSelectedRecordingModeName(), RecordingModeIntervalFiles, StringComparison.OrdinalIgnoreCase)
     End Function
 
+    Private Shared Function NormalizeRecordingModeName(value As String) As String
+        If String.Equals(value, "Single File", StringComparison.OrdinalIgnoreCase) Then
+            Return RecordingModeSingleFile
+        End If
+
+        If String.Equals(value, "Interval Files", StringComparison.OrdinalIgnoreCase) Then
+            Return RecordingModeIntervalFiles
+        End If
+
+        Return If(String.IsNullOrWhiteSpace(value), RecordingModeIntervalFiles, value.Trim())
+    End Function
+
     Private Sub UpdateRecordingModeUiState()
-        intervalUpDown.Enabled = streamRunner Is Nothing AndAlso Not isStartingRecordingValue AndAlso Not isStoppingRecordingValue AndAlso IsIntervalRecordingModeSelected()
+        Dim showInterval = IsIntervalRecordingModeSelected()
+        intervalLabel.Visible = showInterval
+        intervalUpDown.Visible = showInterval
+        intervalUpDown.Enabled = streamRunner Is Nothing AndAlso Not isStartingRecordingValue AndAlso Not isStoppingRecordingValue AndAlso showInterval
     End Sub
 
     Private Sub LoadStreamSettings()
@@ -747,8 +761,10 @@ Public Class StreamRecorderControl
                     Case "profile"
                         SelectProfileByName(value)
                     Case "recordingmode", "mode"
-                        If recordingModeComboBox.Items.Contains(value) Then
-                            recordingModeComboBox.SelectedItem = value
+                        Dim normalizedMode = NormalizeRecordingModeName(value)
+
+                        If recordingModeComboBox.Items.Contains(normalizedMode) Then
+                            recordingModeComboBox.SelectedItem = normalizedMode
                         End If
                     Case "interval"
                         Dim parsedInterval As Integer
@@ -1859,7 +1875,8 @@ Public Class StreamRecorderControl
         stopButton.Enabled = isRecording AndAlso Not isStartingRecordingValue AndAlso Not isStoppingRecordingValue
         urlTextBox.Enabled = Not hasPendingOperation
         recordingModeComboBox.Enabled = Not hasPendingOperation
-        intervalUpDown.Enabled = Not hasPendingOperation AndAlso IsIntervalRecordingModeSelected()
+        UpdateRecordingModeUiState()
+        intervalUpDown.Enabled = Not hasPendingOperation AndAlso intervalUpDown.Visible
         profileComboBox.Enabled = Not hasPendingOperation
         previewButton.Enabled = Not hasPendingOperation AndAlso previewRunner Is Nothing
         stopPreviewButton.Enabled = Not hasPendingOperation AndAlso previewRunner IsNot Nothing

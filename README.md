@@ -21,7 +21,7 @@ The application is built for a fixed `1920x1080` operator screen. It records Dec
 - Stream recorder for direct URLs, local files, YouTube URLs, and Facebook / `fb.watch` URLs.
 - Live preview with left/right audio meters.
 - `Record All`, `Stop All`, individual record/stop, and per-recorder enable controls.
-- Recording mode selector for indefinite `Single File` recording or timed `Interval Files` recording.
+- Recording mode selector for `Infinite Record` or timed `Interval Record`.
 - Persistent settings for sources, profiles, intervals, input modes, PAL aspect, audio listen, player output, and recording folder.
 - One folder per recorder under the selected recording root.
 - DeckLink Player tab with folder tree, file grid, preview, audio meters, scrubber, transport controls, speed controls, and SDI output selection.
@@ -184,10 +184,10 @@ Use `Mode` to choose how recordings are written:
 
 | Mode | Result |
 | --- | --- |
-| `Single File` | Records one timestamped file until you press Stop or the source ends. |
-| `Interval Files` | Records multiple timestamped files using the selected interval seconds. |
+| `Infinite Record` | Records one timestamped file until you press Stop or the source ends. |
+| `Interval Record` | Records multiple timestamped files using the selected interval seconds. |
 
-`Interval Files` is the default and keeps the existing behavior. In `Single File` mode, the interval value is disabled because it is not used.
+`Interval Record` is the default and keeps the existing behavior. In `Infinite Record` mode, the interval value is hidden because it is not used.
 
 ## Sony-Compatible MXF
 

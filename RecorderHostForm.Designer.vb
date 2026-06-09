@@ -186,7 +186,7 @@ Partial Class RecorderHostForm
         profileComboBox.Location = New Point(127, 4)
         profileComboBox.Margin = New Padding(0, 0, 18, 0)
         profileComboBox.Name = "profileComboBox"
-        profileComboBox.Size = New Size(176, 23)
+        profileComboBox.Size = New Size(220, 23)
         intervalLabel.AutoSize = True
         intervalLabel.Font = New Font("Segoe UI", 9.0F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
         intervalLabel.Location = New Point(321, 7)

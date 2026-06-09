@@ -200,7 +200,7 @@ Partial Public Class RecorderHostForm
         recordingModeComboBox.DropDownStyle = ComboBoxStyle.DropDownList
         recordingModeComboBox.Font = New Font("Segoe UI", 9.0F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
         recordingModeComboBox.Margin = New Padding(0)
-        recordingModeComboBox.Size = New Size(104, 23)
+        recordingModeComboBox.Size = New Size(126, 23)
 
         inputModeLabel.AutoSize = True
         inputModeLabel.Font = New Font("Segoe UI", 9.0F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
@@ -566,7 +566,10 @@ Partial Public Class RecorderHostForm
 
     Private Sub UpdateSharedRecordingModeUiState()
         Dim selectedRecordingModeName = TryCast(recordingModeComboBox.SelectedItem, String)
-        intervalUpDown.Enabled = String.Equals(selectedRecordingModeName, "Interval Files", StringComparison.OrdinalIgnoreCase)
+        Dim showInterval = String.Equals(selectedRecordingModeName, "Interval Record", StringComparison.OrdinalIgnoreCase)
+        intervalLabel.Visible = showInterval
+        intervalUpDown.Visible = showInterval
+        intervalUpDown.Enabled = showInterval
     End Sub
 
     Private Sub OnSharedInputModeChanged(sender As Object, e As EventArgs)
