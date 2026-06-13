@@ -24,6 +24,8 @@ Public Class DeckLinkPlayerControl
     Private Const SeekPreviewProxyHeight As Integer = 360
     Private Const SeekPreviewFrameDelayMs As Integer = 12
     Private Const ReverseAudioChannels As Integer = 2
+    Private Const GrowingDurationRefreshIntervalMs As Integer = 2000
+    Private Shared ReadOnly GrowingFileRecentWriteWindow As TimeSpan = TimeSpan.FromSeconds(90)
 
     Private Shared ReadOnly SeekPreviewBurstFrameInterval As TimeSpan = TimeSpan.FromSeconds(1.0R / DurationDisplayFrameRate)
 
@@ -119,6 +121,7 @@ Public Class DeckLinkPlayerControl
     Private ReadOnly playbackPositionTimer As New System.Windows.Forms.Timer()
     Private ReadOnly scrubPreviewTimer As New System.Windows.Forms.Timer()
     Private ReadOnly shuttlePlaybackTimer As New System.Windows.Forms.Timer()
+    Private ReadOnly growingDurationRefreshTimer As New System.Windows.Forms.Timer()
     Private ReadOnly statusLabel As New Label()
     Private ReadOnly speedPresetButtons As New List(Of Button)()
 
@@ -168,6 +171,7 @@ Public Class DeckLinkPlayerControl
     Private scrubFrameRequestGeneration As Integer
     Private currentScrubFrameCancellation As CancellationTokenSource
     Private lastScrubPreviewOffset As TimeSpan?
+    Private isGrowingDurationRefreshRunning As Boolean
     Private playbackFirstPreviewFrameSource As TaskCompletionSource(Of Boolean)
     Private holdPreviewFrameUntilUtc As DateTime
     Private ReadOnly durationByPath As New Dictionary(Of String, TimeSpan)(StringComparer.OrdinalIgnoreCase)
@@ -203,6 +207,8 @@ Public Class DeckLinkPlayerControl
         AddHandler scrubPreviewTimer.Tick, AddressOf OnScrubPreviewTimerTick
         shuttlePlaybackTimer.Interval = 80
         AddHandler shuttlePlaybackTimer.Tick, AddressOf OnShuttlePlaybackTimerTick
+        growingDurationRefreshTimer.Interval = GrowingDurationRefreshIntervalMs
+        AddHandler growingDurationRefreshTimer.Tick, AddressOf OnGrowingDurationRefreshTimerTick
     End Sub
 
     <Browsable(False)>
@@ -884,6 +890,12 @@ Public Class DeckLinkPlayerControl
         End If
     End Sub
 
+    Private Async Sub OnGrowingDurationRefreshTimerTick(sender As Object, e As EventArgs)
+        Dim currentDuration As TimeSpan
+        Dim hasCurrentDuration = IsScrubberLoaded() AndAlso durationByPath.TryGetValue(scrubberLoadedFilePath, currentDuration) AndAlso currentDuration > TimeSpan.Zero
+        Await RefreshLoadedGrowingDurationAsync(forceSlowFallback:=Not hasCurrentDuration)
+    End Sub
+
     Private Sub OnPlaybackPositionTimerTick(sender As Object, e As EventArgs)
         If isScrubberDragging OrElse isSeekingPlayback Then
             Return
@@ -1366,7 +1378,7 @@ Public Class DeckLinkPlayerControl
                 Return
             End If
 
-            Dim duration = Await Task.Run(Function() ProbeDuration(ffprobePath, filePath))
+            Dim duration = Await Task.Run(Function() ProbeDuration(ffprobePath, filePath, allowSlowFallback:=False))
             Dim durationText = If(duration.HasValue, FormatDuration(duration.Value), If(IsImageFile(filePath), "Still", "--"))
 
             If probeGeneration <> durationProbeGeneration OrElse IsDisposed Then
@@ -1401,11 +1413,98 @@ Public Class DeckLinkPlayerControl
         End If
     End Sub
 
-    Private Shared Function ProbeDuration(ffprobePath As String, filePath As String) As TimeSpan?
+    Private Sub UpdateGrowingDurationRefreshTimer()
+        If Not IsScrubberLoaded() OrElse String.IsNullOrWhiteSpace(scrubberLoadedFilePath) OrElse Not IsGrowingSeekDurationCandidate(scrubberLoadedFilePath) OrElse Not File.Exists(scrubberLoadedFilePath) Then
+            growingDurationRefreshTimer.Stop()
+            Return
+        End If
+
+        Dim currentDuration As TimeSpan
+        Dim hasCurrentDuration = durationByPath.TryGetValue(scrubberLoadedFilePath, currentDuration) AndAlso currentDuration > TimeSpan.Zero
+        Dim shouldRefresh = WasFileRecentlyWritten(scrubberLoadedFilePath) OrElse Not hasCurrentDuration
+
+        If Not shouldRefresh Then
+            growingDurationRefreshTimer.Stop()
+            Return
+        End If
+
+        If Not growingDurationRefreshTimer.Enabled Then
+            growingDurationRefreshTimer.Start()
+        End If
+
+    End Sub
+
+    Private Async Function RefreshLoadedGrowingDurationAsync(forceSlowFallback As Boolean) As Task
+        If isGrowingDurationRefreshRunning Then
+            Return
+        End If
+
+        Dim filePath = scrubberLoadedFilePath
+
+        If String.IsNullOrWhiteSpace(filePath) OrElse Not IsGrowingSeekDurationCandidate(filePath) OrElse Not File.Exists(filePath) Then
+            growingDurationRefreshTimer.Stop()
+            Return
+        End If
+
+        Dim ffprobePath = Path.Combine(AppContext.BaseDirectory, "ffprobe.exe")
+
+        If Not File.Exists(ffprobePath) Then
+            Return
+        End If
+
+        isGrowingDurationRefreshRunning = True
+
+        Try
+            Dim duration = Await Task.Run(Function() ProbeDuration(ffprobePath, filePath, allowSlowFallback:=forceSlowFallback))
+
+            If IsDisposed OrElse Not String.Equals(scrubberLoadedFilePath, filePath, StringComparison.OrdinalIgnoreCase) OrElse Not duration.HasValue Then
+                Return
+            End If
+
+            Dim oldDuration As TimeSpan
+            Dim oneFrame = GetPlaybackFrameDuration()
+
+            If durationByPath.TryGetValue(filePath, oldDuration) AndAlso oldDuration > TimeSpan.Zero Then
+                If duration.Value <= oldDuration + oneFrame Then
+                    Return
+                End If
+            End If
+
+            UpdateDurationCell(filePath, FormatDuration(duration.Value), duration.Value)
+        Finally
+            isGrowingDurationRefreshRunning = False
+
+            If Not IsDisposed Then
+                UpdateGrowingDurationRefreshTimer()
+            End If
+        End Try
+    End Function
+
+    Private Shared Function ProbeDuration(ffprobePath As String, filePath As String, Optional allowSlowFallback As Boolean = False) As TimeSpan?
         If IsImageFile(filePath) Then
             Return Nothing
         End If
 
+        Dim duration = ProbeContainerDuration(ffprobePath, filePath)
+
+        If duration.HasValue Then
+            Return duration
+        End If
+
+        duration = EstimateGrowingRecordingDuration(filePath)
+
+        If duration.HasValue Then
+            Return duration
+        End If
+
+        If allowSlowFallback AndAlso IsGrowingSeekDurationCandidate(filePath) Then
+            Return ProbeDurationFromFrameCount(ffprobePath, filePath)
+        End If
+
+        Return Nothing
+    End Function
+
+    Private Shared Function ProbeContainerDuration(ffprobePath As String, filePath As String) As TimeSpan?
         Try
             Dim startInfo As New ProcessStartInfo() With {
                 .FileName = ffprobePath,
@@ -1422,12 +1521,14 @@ Public Class DeckLinkPlayerControl
                     Return Nothing
                 End If
 
-                Dim output = process.StandardOutput.ReadToEnd().Trim()
+                Dim outputTask = process.StandardOutput.ReadToEndAsync()
 
                 If Not process.WaitForExit(3000) Then
                     process.Kill(True)
                     Return Nothing
                 End If
+
+                Dim output = outputTask.GetAwaiter().GetResult().Trim()
 
                 Dim seconds As Double
 
@@ -1439,6 +1540,193 @@ Public Class DeckLinkPlayerControl
             End Using
         Catch
             Return Nothing
+        End Try
+    End Function
+
+    Private Shared Function EstimateGrowingRecordingDuration(filePath As String) As TimeSpan?
+        If Not IsGrowingSeekDurationCandidate(filePath) OrElse Not WasFileRecentlyWritten(filePath) Then
+            Return Nothing
+        End If
+
+        Dim startTime As DateTime
+
+        If TryGetRecordingStartTimeFromFileName(filePath, startTime) Then
+            Dim duration = DateTime.Now - startTime
+
+            If duration > TimeSpan.FromSeconds(1) Then
+                Return duration
+            End If
+        End If
+
+        Try
+            Dim creationTime = File.GetCreationTime(filePath)
+            Dim duration = DateTime.Now - creationTime
+
+            If duration > TimeSpan.FromSeconds(1) AndAlso duration < TimeSpan.FromDays(2) Then
+                Return duration
+            End If
+        Catch
+        End Try
+
+        Return Nothing
+    End Function
+
+    Private Shared Function TryGetRecordingStartTimeFromFileName(filePath As String, ByRef startTime As DateTime) As Boolean
+        startTime = DateTime.MinValue
+        Dim name = Path.GetFileNameWithoutExtension(filePath)
+
+        If String.IsNullOrWhiteSpace(name) Then
+            Return False
+        End If
+
+        Dim parts = name.Split("_"c)
+
+        If parts.Length < 3 Then
+            Return False
+        End If
+
+        For index = parts.Length - 2 To 1 Step -1
+            Dim dateText = parts(index - 1)
+            Dim timeText = parts(index)
+
+            If DateTime.TryParseExact(
+                $"{dateText}_{timeText}",
+                "ddMMyyyy_HHmmss",
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeLocal,
+                startTime) Then
+
+                Return True
+            End If
+        Next
+
+        Return False
+    End Function
+
+    Private Shared Function ProbeDurationFromFrameCount(ffprobePath As String, filePath As String) As TimeSpan?
+        Try
+            Dim startInfo As New ProcessStartInfo() With {
+                .FileName = ffprobePath,
+                .UseShellExecute = False,
+                .RedirectStandardOutput = True,
+                .RedirectStandardError = True,
+                .CreateNoWindow = True
+            }
+
+            startInfo.ArgumentList.Add("-v")
+            startInfo.ArgumentList.Add("error")
+            startInfo.ArgumentList.Add("-select_streams")
+            startInfo.ArgumentList.Add("v:0")
+            startInfo.ArgumentList.Add("-count_packets")
+            startInfo.ArgumentList.Add("-show_entries")
+            startInfo.ArgumentList.Add("stream=duration,nb_read_packets,r_frame_rate,avg_frame_rate")
+            startInfo.ArgumentList.Add("-of")
+            startInfo.ArgumentList.Add("default=nw=1")
+            startInfo.ArgumentList.Add(filePath)
+
+            Using process As New Process() With {.StartInfo = startInfo}
+                If Not process.Start() Then
+                    Return Nothing
+                End If
+
+                Dim outputTask = process.StandardOutput.ReadToEndAsync()
+
+                If Not process.WaitForExit(5000) Then
+                    process.Kill(True)
+                    Return Nothing
+                End If
+
+                If process.ExitCode <> 0 Then
+                    Return Nothing
+                End If
+
+                Return ParseFrameCountDuration(outputTask.GetAwaiter().GetResult())
+            End Using
+        Catch
+            Return Nothing
+        End Try
+    End Function
+
+    Private Shared Function ParseFrameCountDuration(output As String) As TimeSpan?
+        If String.IsNullOrWhiteSpace(output) Then
+            Return Nothing
+        End If
+
+        Dim durationSeconds As Double
+        Dim frameCount As Long
+        Dim frameRate As Double
+
+        For Each line In output.Split({ControlChars.Cr, ControlChars.Lf}, StringSplitOptions.RemoveEmptyEntries)
+            Dim separatorIndex = line.IndexOf("="c)
+
+            If separatorIndex <= 0 Then
+                Continue For
+            End If
+
+            Dim key = line.Substring(0, separatorIndex).Trim()
+            Dim value = line.Substring(separatorIndex + 1).Trim()
+
+            Select Case key
+                Case "duration"
+                    If Double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, durationSeconds) AndAlso durationSeconds > 0 Then
+                        Return TimeSpan.FromSeconds(durationSeconds)
+                    End If
+                Case "nb_read_packets"
+                    Long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, frameCount)
+                Case "avg_frame_rate"
+                    If frameRate <= 0 Then
+                        TryParseFrameRate(value, frameRate)
+                    End If
+                Case "r_frame_rate"
+                    If frameRate <= 0 Then
+                        TryParseFrameRate(value, frameRate)
+                    End If
+            End Select
+        Next
+
+        If frameCount > 0 AndAlso frameRate > 0 Then
+            Return TimeSpan.FromSeconds(frameCount / frameRate)
+        End If
+
+        Return Nothing
+    End Function
+
+    Private Shared Function TryParseFrameRate(value As String, ByRef frameRate As Double) As Boolean
+        frameRate = 0.0R
+
+        If String.IsNullOrWhiteSpace(value) OrElse String.Equals(value, "0/0", StringComparison.OrdinalIgnoreCase) Then
+            Return False
+        End If
+
+        Dim parts = value.Split("/"c)
+
+        If parts.Length = 2 Then
+            Dim numerator As Double
+            Dim denominator As Double
+
+            If Double.TryParse(parts(0), NumberStyles.Float, CultureInfo.InvariantCulture, numerator) AndAlso
+                Double.TryParse(parts(1), NumberStyles.Float, CultureInfo.InvariantCulture, denominator) AndAlso
+                denominator > 0 Then
+
+                frameRate = numerator / denominator
+                Return frameRate > 0
+            End If
+        End If
+
+        Return Double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, frameRate) AndAlso frameRate > 0
+    End Function
+
+    Private Shared Function IsGrowingSeekDurationCandidate(filePath As String) As Boolean
+        Dim extension = Path.GetExtension(filePath)
+        Return String.Equals(extension, ".ts", StringComparison.OrdinalIgnoreCase) OrElse
+            String.Equals(extension, ".mxf", StringComparison.OrdinalIgnoreCase)
+    End Function
+
+    Private Shared Function WasFileRecentlyWritten(filePath As String) As Boolean
+        Try
+            Return DateTime.UtcNow - File.GetLastWriteTimeUtc(filePath) <= GrowingFileRecentWriteWindow
+        Catch
+            Return False
         End Try
     End Function
 
@@ -1532,6 +1820,7 @@ Public Class DeckLinkPlayerControl
 
     Private Sub RefreshScrubberForSelectedFile()
         If Not IsScrubberLoaded() Then
+            UpdateGrowingDurationRefreshTimer()
             ClearScrubber()
             Return
         End If
@@ -1539,6 +1828,10 @@ Public Class DeckLinkPlayerControl
         Dim duration = GetSelectedDuration()
 
         If Not duration.HasValue Then
+            UpdateGrowingDurationRefreshTimer()
+            If IsGrowingSeekDurationCandidate(scrubberLoadedFilePath) Then
+                Dim ignored = RefreshLoadedGrowingDurationAsync(forceSlowFallback:=True)
+            End If
             scrubberTrackBar.Enabled = False
             scrubberTrackBar.Value = 0
             scrubberTrackBar.Maximum = 0
@@ -1556,9 +1849,11 @@ Public Class DeckLinkPlayerControl
         End If
 
         SetScrubberPosition(playbackStartOffset)
+        UpdateGrowingDurationRefreshTimer()
     End Sub
 
     Private Sub ClearScrubber()
+        growingDurationRefreshTimer.Stop()
         scrubberTrackBar.Enabled = False
         scrubberTrackBar.Value = 0
         scrubberTrackBar.Maximum = 0
@@ -3300,8 +3595,10 @@ Public Class DeckLinkPlayerControl
             scrubPreviewCache = Nothing
             scrubPreviewTimer.Stop()
             playbackPositionTimer.Stop()
+            growingDurationRefreshTimer.Stop()
             scrubPreviewTimer.Dispose()
             playbackPositionTimer.Dispose()
+            growingDurationRefreshTimer.Dispose()
 
             If runner IsNot Nothing Then
                 runner.Dispose()
