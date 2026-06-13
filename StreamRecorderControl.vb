@@ -227,17 +227,24 @@ Public Class StreamRecorderControl
         profileComboBox.DropDownStyle = ComboBoxStyle.DropDownList
         profileComboBox.Dock = DockStyle.Top
         profileComboBox.MinimumSize = New Size(260, 0)
-        profileComboBox.DropDownWidth = 280
+        profileComboBox.DropDownWidth = 320
         profileComboBox.Margin = New Padding(0)
         profileComboBox.Items.AddRange(New Object() {
             New StreamRecordingProfile("XDCAM HD422", ".mxf", "-c:v mpeg2video -pix_fmt yuv422p -b:v 50000k -minrate 50000k -maxrate 50000k -bufsize 17825792 -rc_init_occupancy 17825792 -g 12 -bf 2 -flags +ildct+ilme -top 1 -qmin 1 -qmax 12 -dc 10 -intra_vlc 1 -color_primaries bt709 -color_trc bt709 -colorspace bt709 -c:a pcm_s16le -ar 48000 -ac 2"),
             New StreamRecordingProfile("XDCAM Sony Compatible", ".mxf", "-c:v mpeg2video -pix_fmt yuv422p -b:v 50000k -minrate 50000k -maxrate 50000k -bufsize 17825792 -rc_init_occupancy 17825792 -g 12 -bf 2 -flags +ildct+ilme -top 1 -qmin 1 -qmax 12 -dc 10 -intra_vlc 1 -color_primaries bt709 -color_trc bt709 -colorspace bt709 -c:a pcm_s24le -ar 48000", useFfmbcFinalize:=True),
             New StreamRecordingProfile("MP4 High Quality", ".mp4", "-c:v libx264 -preset medium -crf 18 -pix_fmt yuv420p -profile:v high -movflags +faststart -c:a aac -b:a 192k -ar 48000 -ac 2"),
             New StreamRecordingProfile("MP4 Low Bitrate", ".mp4", "-c:v libx264 -preset veryfast -crf 24 -pix_fmt yuv420p -profile:v high -movflags +faststart -c:a aac -b:a 128k -ar 48000 -ac 2"),
+            New StreamRecordingProfile("TS H.264 High Quality", ".ts", "-c:v libx264 -preset veryfast -crf 20 -pix_fmt yuv420p -profile:v high -c:a aac -b:a 192k -ar 48000 -ac 2"),
+            New StreamRecordingProfile("TS H.264 Low Bitrate", ".ts", "-c:v libx264 -preset veryfast -crf 25 -pix_fmt yuv420p -profile:v high -c:a aac -b:a 128k -ar 48000 -ac 2"),
+            New StreamRecordingProfile("TS MPEG-2 4:2:2 50M", ".ts", "-c:v mpeg2video -pix_fmt yuv422p -b:v 50000k -minrate 50000k -maxrate 50000k -bufsize 17825792 -g 12 -bf 2 -flags +ildct+ilme -top 1 -qmin 1 -qmax 12 -dc 10 -intra_vlc 1 -color_primaries bt709 -color_trc bt709 -colorspace bt709 -c:a mp2 -b:a 384k -ar 48000 -ac 2"),
             New StreamRecordingProfile("ProRes Proxy (Small)", ".mov", "-c:v prores_ks -profile:v 0 -pix_fmt yuv422p10le -vendor apl0 -bits_per_mb 400 -c:a pcm_s16le -ar 48000"),
             New StreamRecordingProfile("ProRes LT (Light)", ".mov", "-c:v prores_ks -profile:v 1 -pix_fmt yuv422p10le -vendor apl0 -bits_per_mb 1000 -c:a pcm_s16le -ar 48000"),
             New StreamRecordingProfile("ProRes 422 (Medium)", ".mov", "-c:v prores_ks -profile:v 2 -pix_fmt yuv422p10le -vendor apl0 -bits_per_mb 1600 -c:a pcm_s16le -ar 48000"),
-            New StreamRecordingProfile("ProRes 422 HQ (High)", ".mov", "-c:v prores_ks -profile:v 3 -pix_fmt yuv422p10le -vendor apl0 -bits_per_mb 2400 -c:a pcm_s16le -ar 48000")
+            New StreamRecordingProfile("ProRes 422 HQ (High)", ".mov", "-c:v prores_ks -profile:v 3 -pix_fmt yuv422p10le -vendor apl0 -bits_per_mb 2400 -c:a pcm_s16le -ar 48000"),
+            New StreamRecordingProfile("DNxHD 36 (Proxy)", ".mxf", "-c:v dnxhd -b:v 36M -pix_fmt yuv422p -c:a pcm_s16le -ar 48000"),
+            New StreamRecordingProfile("DNxHD 120 (Standard)", ".mxf", "-c:v dnxhd -b:v 120M -pix_fmt yuv422p -c:a pcm_s16le -ar 48000"),
+            New StreamRecordingProfile("DNxHD 185 (High)", ".mxf", "-c:v dnxhd -b:v 185M -pix_fmt yuv422p -c:a pcm_s16le -ar 48000"),
+            New StreamRecordingProfile("DNxHD 185x (10-bit)", ".mxf", "-c:v dnxhd -b:v 185M -pix_fmt yuv422p10le -c:a pcm_s16le -ar 48000")
         })
         profileComboBox.SelectedIndex = 1
 
@@ -1606,7 +1613,13 @@ Public Class StreamRecorderControl
     End Sub
 
     Private Shared Function GetSegmentFormat(profile As StreamRecordingProfile) As String
-        Return If(String.IsNullOrWhiteSpace(profile.ContainerExtension), "mp4", profile.ContainerExtension.Trim().TrimStart("."c))
+        Dim format = If(String.IsNullOrWhiteSpace(profile.ContainerExtension), "mp4", profile.ContainerExtension.Trim().TrimStart("."c))
+
+        If String.Equals(format, "ts", StringComparison.OrdinalIgnoreCase) Then
+            Return "mpegts"
+        End If
+
+        Return format
     End Function
 
     Private Function ResolveInputUrls(sourceValue As String) As IReadOnlyList(Of String)

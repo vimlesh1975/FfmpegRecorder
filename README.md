@@ -170,10 +170,17 @@ PAL aspect options:
 | `XDCAM Sony Compatible` | `.mxf` | Uses FFmbc finalization for Sony-friendly MXF. |
 | `MP4 High Quality` | `.mp4` | H.264 high-quality file. |
 | `MP4 Low Bitrate` | `.mp4` | Smaller H.264 file. |
+| `TS H.264 High Quality` | `.ts` | H.264 MPEG transport stream for robust recording/playout. |
+| `TS H.264 Low Bitrate` | `.ts` | Smaller H.264 MPEG transport stream. |
+| `TS MPEG-2 4:2:2 50M` | `.ts` | Broadcast-style MPEG-2 4:2:2 transport stream. |
 | `ProRes Proxy (Small)` | `.mov` | Lightweight ProRes proxy. |
 | `ProRes LT (Light)` | `.mov` | ProRes LT. |
 | `ProRes 422 (Medium)` | `.mov` | Standard ProRes 422. |
 | `ProRes 422 HQ (High)` | `.mov` | ProRes 422 HQ. |
+| `DNxHD 36 (Proxy)` | `.mxf` | Lightweight Avid DNxHD proxy. |
+| `DNxHD 120 (Standard)` | `.mxf` | Standard 8-bit DNxHD 4:2:2. |
+| `DNxHD 185 (High)` | `.mxf` | High-quality 8-bit DNxHD 4:2:2. |
+| `DNxHD 185x (10-bit)` | `.mxf` | High-quality 10-bit DNxHD 4:2:2. |
 
 For PAL input, the app can upconvert to HD before recording according to the selected PAL aspect.
 

@@ -289,7 +289,13 @@ Friend Class RecorderOptions
     End Sub
 
     Private Function GetSegmentFormat() As String
-        Return If(String.IsNullOrWhiteSpace(ContainerExtension), "mov", ContainerExtension.Trim().TrimStart("."c))
+        Dim format = If(String.IsNullOrWhiteSpace(ContainerExtension), "mov", ContainerExtension.Trim().TrimStart("."c))
+
+        If String.Equals(format, "ts", StringComparison.OrdinalIgnoreCase) Then
+            Return "mpegts"
+        End If
+
+        Return format
     End Function
 
     Private Shared Function Quote(value As String) As String

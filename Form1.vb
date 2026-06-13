@@ -108,6 +108,23 @@ Partial Public Class RecorderControl
         "-c:v libx264 -preset veryfast -crf 24 -pix_fmt yuv420p -profile:v high -movflags +faststart -c:a aac -b:a 128k -ar 48000 -ac 2",
         "bwdif=mode=send_frame:parity=auto:deint=all,scale=1920:1080:flags=lanczos,fps=25"
     )
+    Private ReadOnly tsH264HighProfile As New RecordingProfileDefinition(
+        "TS H.264 High Quality",
+        ".ts",
+        "-c:v libx264 -preset veryfast -crf 20 -pix_fmt yuv420p -profile:v high -c:a aac -b:a 192k -ar 48000 -ac 2",
+        "bwdif=mode=send_frame:parity=auto:deint=all,scale=1920:1080:flags=lanczos,fps=25"
+    )
+    Private ReadOnly tsH264LowProfile As New RecordingProfileDefinition(
+        "TS H.264 Low Bitrate",
+        ".ts",
+        "-c:v libx264 -preset veryfast -crf 25 -pix_fmt yuv420p -profile:v high -c:a aac -b:a 128k -ar 48000 -ac 2",
+        "bwdif=mode=send_frame:parity=auto:deint=all,scale=1920:1080:flags=lanczos,fps=25"
+    )
+    Private ReadOnly tsMpeg2Profile As New RecordingProfileDefinition(
+        "TS MPEG-2 4:2:2 50M",
+        ".ts",
+        "-c:v mpeg2video -pix_fmt yuv422p -b:v 50000k -minrate 50000k -maxrate 50000k -bufsize 17825792 -g 12 -bf 2 -flags +ildct+ilme -top 1 -qmin 1 -qmax 12 -dc 10 -intra_vlc 1 -color_primaries bt709 -color_trc bt709 -colorspace bt709 -c:a mp2 -b:a 384k -ar 48000 -ac 2"
+    )
     Private ReadOnly proResProxyProfile As New RecordingProfileDefinition(
         "ProRes Proxy (Small)",
         ".mov",
@@ -127,6 +144,26 @@ Partial Public Class RecorderControl
         "ProRes 422 HQ (High)",
         ".mov",
         "-c:v prores_ks -profile:v 3 -pix_fmt yuv422p10le -vendor apl0 -bits_per_mb 2400 -c:a pcm_s16le -ar 48000"
+    )
+    Private ReadOnly dnxhd36Profile As New RecordingProfileDefinition(
+        "DNxHD 36 (Proxy)",
+        ".mxf",
+        "-c:v dnxhd -b:v 36M -pix_fmt yuv422p -c:a pcm_s16le -ar 48000"
+    )
+    Private ReadOnly dnxhd120Profile As New RecordingProfileDefinition(
+        "DNxHD 120 (Standard)",
+        ".mxf",
+        "-c:v dnxhd -b:v 120M -pix_fmt yuv422p -c:a pcm_s16le -ar 48000"
+    )
+    Private ReadOnly dnxhd185Profile As New RecordingProfileDefinition(
+        "DNxHD 185 (High)",
+        ".mxf",
+        "-c:v dnxhd -b:v 185M -pix_fmt yuv422p -c:a pcm_s16le -ar 48000"
+    )
+    Private ReadOnly dnxhd185xProfile As New RecordingProfileDefinition(
+        "DNxHD 185x (10-bit)",
+        ".mxf",
+        "-c:v dnxhd -b:v 185M -pix_fmt yuv422p10le -c:a pcm_s16le -ar 48000"
     )
 
     Private ReadOnly previewPictureBox As New PictureBox()
@@ -534,8 +571,8 @@ Partial Public Class RecorderControl
         statusValueLabel.TextAlign = ContentAlignment.MiddleLeft
 
         profileComboBox.DropDownStyle = ComboBoxStyle.DropDownList
-        profileComboBox.Width = 164
-        profileComboBox.DropDownWidth = 240
+        profileComboBox.Width = 190
+        profileComboBox.DropDownWidth = 300
         profileComboBox.Anchor = AnchorStyles.Left
         profileComboBox.Margin = New Padding(0, 3, 8, 3)
         profileComboBox.Items.AddRange(New Object() {
@@ -543,10 +580,17 @@ Partial Public Class RecorderControl
             xdcamSonyCompatibleProfile,
             mp4HighResProfile,
             mp4LowResProfile,
+            tsH264HighProfile,
+            tsH264LowProfile,
+            tsMpeg2Profile,
             proResProxyProfile,
             proResLtProfile,
             proRes422Profile,
-            proRes422HqProfile
+            proRes422HqProfile,
+            dnxhd36Profile,
+            dnxhd120Profile,
+            dnxhd185Profile,
+            dnxhd185xProfile
         })
         profileComboBox.SelectedItem = xdcamHd422Profile
         AddHandler profileComboBox.SelectedIndexChanged, AddressOf OnProfileChanged
@@ -978,7 +1022,7 @@ Partial Public Class RecorderControl
 
         Dim sourceSarExpression = If(String.Equals(inputModeName, DeckLinkInputModeAuto, StringComparison.OrdinalIgnoreCase), GetConditionalPalSarExpression(), GetPalSarValue())
 
-        If IsMp4Profile(selectedProfile) Then
+        If UsesProgressiveHdRecordingFilter(selectedProfile) Then
             Return String.Join(",",
                 $"setsar=sar={sourceSarExpression}",
                 "bwdif=mode=send_frame:parity=auto:deint=all",
@@ -995,8 +1039,11 @@ Partial Public Class RecorderControl
             "setsar=1")
     End Function
 
-    Private Function IsMp4Profile(selectedProfile As RecordingProfileDefinition) As Boolean
-        Return Object.ReferenceEquals(selectedProfile, mp4HighResProfile) OrElse Object.ReferenceEquals(selectedProfile, mp4LowResProfile)
+    Private Function UsesProgressiveHdRecordingFilter(selectedProfile As RecordingProfileDefinition) As Boolean
+        Return Object.ReferenceEquals(selectedProfile, mp4HighResProfile) OrElse
+            Object.ReferenceEquals(selectedProfile, mp4LowResProfile) OrElse
+            Object.ReferenceEquals(selectedProfile, tsH264HighProfile) OrElse
+            Object.ReferenceEquals(selectedProfile, tsH264LowProfile)
     End Function
 
     Private Function GetPalSarValue() As String
