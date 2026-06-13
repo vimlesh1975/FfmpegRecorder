@@ -110,9 +110,6 @@ Public Class DeckLinkPlayerControl
     Private ReadOnly selectedFileLabel As New Label()
     Private ReadOnly previewStateHostPanel As New Panel()
     Private ReadOnly speedButtonsPanel As New FlowLayoutPanel()
-    Private ReadOnly speedSeekPanel As New TableLayoutPanel()
-    Private ReadOnly speedTrackBar As New TrackBar()
-    Private ReadOnly speedValueLabel As New Label()
     Private ReadOnly previewPictureBox As New PictureBox()
     Private ReadOnly previewStateLabel As New Label()
     Private ReadOnly scrubberPanel As New TableLayoutPanel()
@@ -165,7 +162,6 @@ Public Class DeckLinkPlayerControl
     Private reverseDeckLinkAudioEnabled As Boolean
     Private reverseAudioLeftDbfs As Double = -90.0R
     Private reverseAudioRightDbfs As Double = -90.0R
-    Private isUpdatingSpeedControls As Boolean
     Private pendingScrubFrameOffset As TimeSpan?
     Private pendingScrubFrameShouldUpdateDeckLink As Boolean
     Private scrubFrameRequestGeneration As Integer
@@ -194,7 +190,6 @@ Public Class DeckLinkPlayerControl
         AddHandler filesGridView.KeyDown, AddressOf OnFilesGridKeyDown
         AddHandler previewButton.Click, AddressOf OnPreviewClicked
         AddHandler stopPreviewButton.Click, AddressOf OnStopPreviewClicked
-        AddHandler speedTrackBar.ValueChanged, AddressOf OnSpeedTrackBarValueChanged
         AddHandler outputDeviceComboBox.SelectedIndexChanged, AddressOf OnOutputSelectionChanged
         AddHandler outputModeComboBox.SelectedIndexChanged, AddressOf OnOutputSelectionChanged
         AddHandler scrubberTrackBar.MouseDown, AddressOf OnScrubberMouseDown
@@ -392,12 +387,11 @@ Public Class DeckLinkPlayerControl
         previewPanel.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 100.0F))
         previewPanel.Dock = DockStyle.Fill
         previewPanel.Margin = New Padding(0)
-        previewPanel.RowCount = 5
+        previewPanel.RowCount = 4
         previewPanel.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
         previewPanel.RowStyles.Add(New RowStyle(SizeType.Absolute, 42.0F))
         previewPanel.RowStyles.Add(New RowStyle(SizeType.Absolute, 36.0F))
         previewPanel.RowStyles.Add(New RowStyle(SizeType.Absolute, 64.0F))
-        previewPanel.RowStyles.Add(New RowStyle(SizeType.Absolute, 44.0F))
 
         previewToolbarPanel.Dock = DockStyle.Fill
         previewToolbarPanel.FlowDirection = FlowDirection.LeftToRight
@@ -447,34 +441,6 @@ Public Class DeckLinkPlayerControl
             AddSpeedPresetButton(speed)
         Next
 
-        speedSeekPanel.ColumnCount = 2
-        speedSeekPanel.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 100.0F))
-        speedSeekPanel.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 72.0F))
-        speedSeekPanel.Dock = DockStyle.Fill
-        speedSeekPanel.Margin = New Padding(0, 0, 0, 0)
-        speedSeekPanel.RowCount = 1
-        speedSeekPanel.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
-
-        speedTrackBar.AutoSize = False
-        speedTrackBar.Dock = DockStyle.Fill
-        speedTrackBar.Height = 34
-        speedTrackBar.LargeChange = 10
-        speedTrackBar.Margin = New Padding(0, 3, 8, 0)
-        speedTrackBar.Maximum = 200
-        speedTrackBar.Minimum = -200
-        speedTrackBar.SmallChange = 5
-        speedTrackBar.TickFrequency = 50
-        speedTrackBar.Value = 10
-
-        speedValueLabel.AutoEllipsis = True
-        speedValueLabel.AutoSize = False
-        speedValueLabel.Dock = DockStyle.Fill
-        speedValueLabel.Margin = New Padding(0, 9, 0, 0)
-        speedValueLabel.TextAlign = ContentAlignment.TopRight
-
-        speedSeekPanel.Controls.Add(speedTrackBar, 0, 0)
-        speedSeekPanel.Controls.Add(speedValueLabel, 1, 0)
-
         previewPictureBox.BackColor = Color.Black
         previewPictureBox.BorderStyle = BorderStyle.FixedSingle
         previewPictureBox.Dock = DockStyle.Fill
@@ -519,7 +485,6 @@ Public Class DeckLinkPlayerControl
         previewPanel.Controls.Add(scrubberPanel, 0, 1)
         previewPanel.Controls.Add(previewToolbarPanel, 0, 2)
         previewPanel.Controls.Add(speedButtonsPanel, 0, 3)
-        previewPanel.Controls.Add(speedSeekPanel, 0, 4)
 
         statusLabel.AutoEllipsis = True
         statusLabel.Dock = DockStyle.Fill
@@ -764,14 +729,6 @@ Public Class DeckLinkPlayerControl
 
         Dim selectedSpeed = NormalizePlaybackSpeed(Convert.ToDouble(clickedButton.Tag, CultureInfo.InvariantCulture))
         Await SetPlaybackSpeedAsync(selectedSpeed, restartIfPlaying:=True, startIfStopped:=Math.Abs(selectedSpeed) >= 0.001R)
-    End Sub
-
-    Private Async Sub OnSpeedTrackBarValueChanged(sender As Object, e As EventArgs)
-        If isUpdatingSpeedControls Then
-            Return
-        End If
-
-        Await SetPlaybackSpeedAsync(NormalizePlaybackSpeed(speedTrackBar.Value / 10.0R), restartIfPlaying:=True)
     End Sub
 
     Private Async Function SetPlaybackSpeedAsync(selectedSpeed As Double, restartIfPlaying As Boolean, Optional startIfStopped As Boolean = False) As Task
@@ -3404,10 +3361,10 @@ Public Class DeckLinkPlayerControl
         stopPreviewButton.Enabled = (isPreviewRunning OrElse isOutputRunning OrElse isShuttleRunning) AndAlso Not isStoppingPreview AndAlso Not isStoppingOutput AndAlso Not isSeekingPlayback
         outputDeviceComboBox.Enabled = Not isOutputRunning AndAlso Not isStoppingOutput AndAlso Not isSeekingPlayback
         outputModeComboBox.Enabled = Not isOutputRunning AndAlso Not isStoppingOutput AndAlso Not isSeekingPlayback
-        speedTrackBar.Enabled = Not isLoadingFiles AndAlso Not isStoppingPreview AndAlso Not isStoppingOutput
+        Dim speedControlsEnabled = Not isLoadingFiles AndAlso Not isStoppingPreview AndAlso Not isStoppingOutput
 
         For Each button In speedPresetButtons
-            button.Enabled = speedTrackBar.Enabled
+            button.Enabled = speedControlsEnabled
         Next
     End Sub
 
@@ -3417,20 +3374,6 @@ Public Class DeckLinkPlayerControl
 
     Private Sub UpdateSpeedControls()
         Dim speed = NormalizePlaybackSpeed(playbackSpeedMultiplier)
-        Dim sliderValue = CInt(Math.Round(speed * 10.0R, MidpointRounding.AwayFromZero))
-        sliderValue = Math.Max(speedTrackBar.Minimum, Math.Min(speedTrackBar.Maximum, sliderValue))
-
-        isUpdatingSpeedControls = True
-
-        Try
-            If speedTrackBar.Value <> sliderValue Then
-                speedTrackBar.Value = sliderValue
-            End If
-
-            speedValueLabel.Text = FormatPlaybackSpeed(speed)
-        Finally
-            isUpdatingSpeedControls = False
-        End Try
 
         For Each button In speedPresetButtons
             Dim buttonSpeed = NormalizePlaybackSpeed(Convert.ToDouble(button.Tag, CultureInfo.InvariantCulture))
@@ -3477,7 +3420,6 @@ Public Class DeckLinkPlayerControl
         previewToolbarPanel.BackColor = background
         previewStateHostPanel.BackColor = background
         speedButtonsPanel.BackColor = background
-        speedSeekPanel.BackColor = background
         previewPanel.BackColor = background
         browserSplit.BackColor = background
 
@@ -3486,7 +3428,6 @@ Public Class DeckLinkPlayerControl
         outputModeLabel.ForeColor = foreground
         previewStateLabel.ForeColor = secondaryForeground
         selectedFileLabel.ForeColor = secondaryForeground
-        speedValueLabel.ForeColor = secondaryForeground
         statusLabel.ForeColor = secondaryForeground
 
         rootPathTextBox.BackColor = inputBackground

@@ -27,11 +27,13 @@
   <Target Name="CreateTimestampedExecutableCopy" AfterTargets="Build" Condition="Exists('$(TargetDir)$(AssemblyName).exe')">
     <PropertyGroup>
       <ExecutableSourcePath>$(TargetDir)$(AssemblyName).exe</ExecutableSourcePath>
-      <TimestampedExecutablePath>$(TargetDir)$(AssemblyName)_$([System.DateTime]::Now.ToString('yyyyMMdd_HHmmss')).exe</TimestampedExecutablePath>
+      <TimestampedExecutableBaseName>4Ch_Recoder_1Ch_Player</TimestampedExecutableBaseName>
+      <TimestampedExecutablePath>$(TargetDir)$(TimestampedExecutableBaseName)_$([System.DateTime]::Now.ToString('ddMMyy_HHmmss')).exe</TimestampedExecutablePath>
     </PropertyGroup>
 
     <ItemGroup>
       <ExistingTimestampedExecutables Include="$(TargetDir)$(AssemblyName)_*.exe" />
+      <ExistingTimestampedExecutables Include="$(TargetDir)$(TimestampedExecutableBaseName)_*.exe" />
       <DeckLinkPlayerHelperArtifacts Include="$(TargetDir)decklinkplayer*.exe" />
       <DeckLinkPlayerHelperArtifacts Include="$(TargetDir)decklinkplayer.dll" />
       <DeckLinkPlayerHelperArtifacts Include="$(TargetDir)decklinkplayer.pdb" />

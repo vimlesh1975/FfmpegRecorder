@@ -68,7 +68,7 @@ bin\Debug\net10.0-windows\
 Normal debug output folder. After a successful build, the app creates a timestamped executable such as:
 
 ```text
-FfmpegRecorder_20260608_171805.exe
+4Ch_Recoder_1Ch_Player_130626_164950.exe
 ```
 
 ```text
@@ -87,14 +87,14 @@ The build:
 
 - Builds the main WinForms app.
 - Copies `DeckLinkAPI.Interop.dll` to the output folder.
-- Removes old timestamped `FfmpegRecorder_*.exe` files.
+- Removes old timestamped `FfmpegRecorder_*.exe` and `4Ch_Recoder_1Ch_Player_*.exe` files.
 - Removes stale helper/player artifacts such as `DeckLinkOutputHelper.exe` or `decklinkplayer*.exe` if they exist.
 - Renames the main executable to a fresh timestamped executable.
 
 Expected output:
 
 ```text
-bin\Debug\net10.0-windows\FfmpegRecorder_yyyyMMdd_HHmmss.exe
+bin\Debug\net10.0-windows\4Ch_Recoder_1Ch_Player_ddMMyy_HHmmss.exe
 ```
 
 ## Run
@@ -102,7 +102,7 @@ bin\Debug\net10.0-windows\FfmpegRecorder_yyyyMMdd_HHmmss.exe
 Open the latest timestamped executable:
 
 ```text
-bin\Debug\net10.0-windows\FfmpegRecorder_yyyyMMdd_HHmmss.exe
+bin\Debug\net10.0-windows\4Ch_Recoder_1Ch_Player_ddMMyy_HHmmss.exe
 ```
 
 Expected runtime files in the same folder:
@@ -184,6 +184,31 @@ PAL aspect options:
 
 For PAL input, the app can upconvert to HD before recording according to the selected PAL aspect.
 
+### DNxHD MXF Profiles
+
+DNxHD profiles are Avid edit-friendly MXF recordings. Use them when the recording is going into an NLE workflow and you want an intraframe codec that is easy to scrub and edit.
+
+| Profile | Video | Use |
+| --- | --- | --- |
+| `DNxHD 36 (Proxy)` | DNxHD 36 Mbps, 8-bit 4:2:2 | Offline/proxy editing and smaller files. |
+| `DNxHD 120 (Standard)` | DNxHD 120 Mbps, 8-bit 4:2:2 | Standard-quality HD edit recording. |
+| `DNxHD 185 (High)` | DNxHD 185 Mbps, 8-bit 4:2:2 | High-quality HD edit recording. |
+| `DNxHD 185x (10-bit)` | DNxHD 185 Mbps, 10-bit 4:2:2 | Higher precision grading/edit master workflow. |
+
+DNxHD files use the `.mxf` wrapper in this app. Audio is recorded as 48 kHz PCM.
+
+### MPEG-TS Profiles
+
+Transport stream profiles are meant for robust capture, live-style recording, and playout workflows. They are useful when a file may still be growing while another part of the app reads it.
+
+| Profile | Video | Audio | Use |
+| --- | --- | --- | --- |
+| `TS H.264 High Quality` | H.264 high profile, 25p | AAC 192 kbps | Good-quality compact `.ts` recording. |
+| `TS H.264 Low Bitrate` | H.264 high profile, 25p | AAC 128 kbps | Smaller files for long recordings. |
+| `TS MPEG-2 4:2:2 50M` | MPEG-2 4:2:2 50 Mbps | MP2 384 kbps | Broadcast-style transport stream. |
+
+For interval recording, `.ts` profiles use FFmpeg's `mpegts` muxer explicitly.
+
 ## Recording Modes
 
 Use `Mode` to choose how recordings are written:
@@ -261,8 +286,8 @@ It provides:
 - Play and Stop controls directly below the scrubber.
 - NLE-style scrub preview.
 - Mouse-up after scrubbing resumes playback from the scrub position.
+- Growing `.ts` and `.mxf` files can get an estimated duration while recording, so the scrubber can be used before the file is finalized.
 - Speed preset buttons: `-20x`, `-10x`, `-5x`, `-2x`, `-1.5x`, `-1x`, `-0.5x`, `0x`, `+0.5x`, `+1x`, `+1.5x`, `+2x`, `+5x`, `+10x`, `+20x`.
-- Speed seekbar from `-20x` to `+20x`.
 - Non-zero speed preset buttons start playback at that speed.
 - `0x` speed holds the current frame.
 - Persistent `Listen Audio` support for player audio monitoring.
@@ -272,6 +297,19 @@ It provides:
 Selecting a file or folder does not load that clip into the scrubber. The scrubber keeps showing the currently loaded/played clip until a new clip is played or double-clicked.
 
 Positive playback speeds use FFmpeg decode/filter timing for preview/audio and DeckLink SDK output.
+
+### Growing File Seeking
+
+Some files do not expose a final container duration until recording stops. This is common with in-progress `.ts` recordings and DNxHD `.mxf` files.
+
+For loaded `.ts` and `.mxf` clips, the player uses fallback duration logic:
+
+- First it asks `ffprobe` for normal container duration.
+- If duration is missing and the file is still being written, it estimates duration from the app's timestamped filename.
+- If needed, it can fall back to packet/frame counting.
+- While the loaded file is still growing, the player refreshes the duration about every 2 seconds so the scrubber range can extend during recording.
+
+This makes it possible to double-click a file that is still being recorded, get a usable scrubber, and seek within the portion already written. Very near the live write point, seeking still depends on what FFmpeg can read from the partially written container.
 
 Negative playback speeds use a reference-style reverse cache:
 
