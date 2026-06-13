@@ -120,9 +120,7 @@ Friend NotInheritable Class ScrubPreviewFrameCache
     End Function
 
     Private Sub DecodeWindowForTarget(centerIndex As Long, cancellationToken As CancellationToken)
-        Dim startIndex = Math.Max(0L, centerIndex - ImmediateFramesBehind)
-        Dim endIndex = ClampFrameIndex(centerIndex + ImmediateFramesAhead)
-        DecodeBlock(startIndex, CInt(Math.Max(1L, endIndex - startIndex + 1L)), cancellationToken, force:=True)
+        DecodeBlock(centerIndex, 1, cancellationToken, force:=True)
     End Sub
 
     Private Sub DecodeBlock(startIndex As Long, frameCount As Integer, cancellationToken As CancellationToken, Optional force As Boolean = False)
@@ -176,13 +174,23 @@ Friend NotInheritable Class ScrubPreviewFrameCache
             CancelDistantPrefetchUnderLock(centerIndex)
 
             If direction < 0 Then
-                QueuePrefetchUnderLock(Math.Max(0L, centerIndex - ImmediateFramesBehind - PrefetchFramesBehind), PrefetchFramesBehind)
-                QueuePrefetchUnderLock(centerIndex + ImmediateFramesAhead + 1L, PrefetchFramesAhead)
+                QueuePrefetchBehindUnderLock(centerIndex)
+                QueuePrefetchUnderLock(centerIndex + 1L, PrefetchFramesAhead)
             Else
-                QueuePrefetchUnderLock(centerIndex + ImmediateFramesAhead + 1L, PrefetchFramesAhead)
-                QueuePrefetchUnderLock(Math.Max(0L, centerIndex - ImmediateFramesBehind - PrefetchFramesBehind), PrefetchFramesBehind)
+                QueuePrefetchUnderLock(centerIndex + 1L, PrefetchFramesAhead)
+                QueuePrefetchBehindUnderLock(centerIndex)
             End If
         End SyncLock
+    End Sub
+
+    Private Sub QueuePrefetchBehindUnderLock(centerIndex As Long)
+        If centerIndex <= 0 Then
+            Return
+        End If
+
+        Dim startIndex = Math.Max(0L, centerIndex - PrefetchFramesBehind)
+        Dim frameCount = CInt(Math.Max(0L, centerIndex - startIndex))
+        QueuePrefetchUnderLock(startIndex, frameCount)
     End Sub
 
     Private Sub QueuePrefetchUnderLock(startIndex As Long, frameCount As Integer)
