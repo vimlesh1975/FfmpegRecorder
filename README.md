@@ -8,11 +8,10 @@ The application is built for a fixed `1920x1080` operator screen. It records Dec
 
 ## Current Architecture
 
-- FFmpeg binaries are used for recording, decoding, preview frame extraction, audio monitoring, and probing.
-- DeckLink Player SDI output is handled in-process through the Blackmagic DeckLink SDK.
+- FFmpeg binaries are used for recording, media decoding, preview frame extraction, reverse audio decoding, audio monitoring, and probing.
+- DeckLink Player SDI output is handled in-process through the Blackmagic DeckLink SDK only.
+- DeckLink Player does not use FFmpeg DeckLink output, `DeckLinkOutputHelper.exe`, or `decklinkplayer.exe`.
 - `DeckLinkAPI.Interop.dll` is referenced from `DeckLinkSdk\DeckLinkAPI.Interop.dll`.
-- There is no separate `DeckLinkOutputHelper.exe`.
-- There is no `decklinkplayer.exe`.
 - The build target removes stale helper/player artifacts if they exist in the output folder.
 
 ## Main Features
@@ -24,7 +23,7 @@ The application is built for a fixed `1920x1080` operator screen. It records Dec
 - Recording mode selector for `Infinite Record` or timed `Interval Record`.
 - Persistent settings for sources, profiles, intervals, input modes, PAL aspect, audio listen, player output, and recording folder.
 - One folder per recorder under the selected recording root.
-- DeckLink Player tab with folder tree, file grid, preview, audio meters, scrubber, transport controls, speed controls, and SDI output selection.
+- DeckLink Player tab with folder tree, file grid, preview, audio meters, scrubber, transport controls, speed controls, reverse cache playback, reverse audio, and SDI output selection.
 - Timestamped executable generated after each build.
 
 ## Requirements
@@ -265,7 +264,18 @@ It provides:
 
 Selecting a file or folder does not load that clip into the scrubber. The scrubber keeps showing the currently loaded/played clip until a new clip is played or double-clicked.
 
-Positive playback speeds use FFmpeg decode/filter timing for preview/audio and DeckLink SDK output. Negative speeds use shuttle-style frame stepping so reverse playback does not require buffering an entire file.
+Positive playback speeds use FFmpeg decode/filter timing for preview/audio and DeckLink SDK output.
+
+Negative playback speeds use a reference-style reverse cache:
+
+- Video is decoded into short cached blocks instead of seeking for every frame.
+- Previous reverse blocks are prefetched so `-5x`, `-10x`, and `-20x` can switch to ready frames.
+- With DeckLink output selected, the same cached UYVY frame drives both local preview and SDI output.
+- With output set to `None`, the player uses a lighter preview-only cache.
+- Reverse audio is decoded in backward PCM chunks, speed-adjusted, and pumped once per cached video frame.
+- Reverse DeckLink audio is written through the Blackmagic SDK audio output.
+- Preview-only reverse audio can use the app's `Listen Audio` setting through local Windows audio.
+- Reverse audio levels are shown in the preview side rails.
 
 When a clip reaches the end, the player holds the last preview frame and the last DeckLink SDI frame instead of switching to black.
 
@@ -280,6 +290,7 @@ The runner:
 - Uses FFmpeg only to decode video/audio frames.
 - Sends decoded UYVY video frames to DeckLink through the SDK.
 - Sends decoded audio samples to DeckLink through the SDK when audio is present.
+- Keeps cached reverse video/audio output in-process; no helper executable is used.
 - Holds scrub and end frames on the SDI output.
 
 If no DeckLink device is available, choose `None` or leave output disabled. Local preview and file browsing still work.
@@ -328,6 +339,16 @@ List FFmpeg DeckLink devices:
 
 Use `None` in the DeckLink Player output selector. The app should still allow local preview, browsing, duration probing, scrubbing, and stream/deck file management. SDI output is skipped.
 
+### No Reverse Audio
+
+Check:
+
+- The selected clip has an audio stream.
+- `ffmpeg.exe` exists beside the app exe.
+- For local preview-only reverse audio, `Listen Audio` is enabled.
+- For SDI reverse audio, a DeckLink output device and mode are selected instead of `None`.
+- The DeckLink device is not already held by another application.
+
 ### Build Creates Helper Files
 
 The current app should not require these files:
@@ -362,6 +383,10 @@ The app attempts to kill bundled FFmpeg/FFplay/FFprobe helper processes on start
 | `StreamRecorderControl.vb` | Stream, URL, and local file recorder. |
 | `DeckLinkPlayerControl.vb` | Folder tree, file grid, scrubber, preview, meters, speed controls, DeckLink playout. |
 | `InProcessDeckLinkOutputRunner.vb` | In-process Blackmagic SDK SDI output. |
+| `ReverseFrameCache.vb` | Reference-style cached reverse video decode for negative speeds. |
+| `ReverseAudioChunkQueue.vb` | Reverse PCM chunk decode and speed adjustment. |
+| `ReverseDeckLinkAudioOutput.vb` | Queued reverse audio writes through the DeckLink SDK output. |
+| `ReverseWaveOutAudioOutput.vb` | Local Windows audio output for preview-only reverse playback. |
 | `FfmpegProcessRunner.vb` | Process wrapper for FFmpeg/FFplay/helper tools. |
 | `PreviewFrameReader.vb` | Pipe-based preview frame reader. |
 | `NetworkPreviewReader.vb` | TCP preview reader during recording. |

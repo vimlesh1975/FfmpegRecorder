@@ -1,10 +1,13 @@
+Imports System.Buffers.Binary
 Imports System.Diagnostics
 Imports System.Drawing
+Imports System.Drawing.Imaging
 Imports System.IO
 Imports System.Collections.Generic
 Imports System.ComponentModel
 Imports System.Globalization
 Imports System.Linq
+Imports System.Runtime.InteropServices
 Imports System.Text
 Imports System.Threading
 Imports System.Threading.Tasks
@@ -16,6 +19,7 @@ Public Class DeckLinkPlayerControl
     Private Const NoDeckLinkOutputText As String = "None"
     Private Const DefaultDeckLinkOutputDeviceName As String = "DeckLink SDI 4K"
     Private Const DurationDisplayFrameRate As Integer = 25
+    Private Const ReverseAudioChannels As Integer = 2
 
     Private Shared ReadOnly Property DeckLinkPlayerOutputSettingsFilePath As String
         Get
@@ -138,6 +142,19 @@ Public Class DeckLinkPlayerControl
     Private shuttlePlaybackActive As Boolean
     Private shuttleClockOffset As TimeSpan = TimeSpan.Zero
     Private shuttleClockStartedAtUtc As DateTime
+    Private reversePlaybackFrameCarry As Double
+    Private reversePlaybackLastTickAtUtc As DateTime?
+    Private reversePlaybackSeekRunning As Boolean
+    Private reversePlaybackCancellation As CancellationTokenSource
+    Private reversePlaybackTask As Task
+    Private reversePreviewCache As ReverseFrameCache
+    Private reverseDeckLinkCache As ReverseFrameCache
+    Private reverseAudio As ReverseAudioChunkQueue
+    Private reverseDeckLinkAudioOutput As ReverseDeckLinkAudioOutput
+    Private reverseWaveAudioOutput As ReverseWaveOutAudioOutput
+    Private reverseDeckLinkAudioEnabled As Boolean
+    Private reverseAudioLeftDbfs As Double = -90.0R
+    Private reverseAudioRightDbfs As Double = -90.0R
     Private isUpdatingSpeedControls As Boolean
     Private pendingScrubFrameOffset As TimeSpan?
     Private pendingScrubFrameShouldUpdateDeckLink As Boolean
@@ -774,9 +791,7 @@ Public Class DeckLinkPlayerControl
         If Math.Abs(playbackSpeedMultiplier) < 0.001R Then
             Await HoldCurrentFrameAsync()
         ElseIf shuttlePlaybackActive AndAlso playbackSpeedMultiplier < 0.0R Then
-            shuttleClockOffset = playbackStartOffset
-            shuttleClockStartedAtUtc = DateTime.UtcNow
-            SetStatus($"Shuttle playback {FormatPlaybackSpeed(playbackSpeedMultiplier)}")
+            Await StartSelectedPlaybackAsync(filePathOverride:=restartFilePath)
         Else
             Await StartSelectedPlaybackAsync(filePathOverride:=restartFilePath)
         End If
@@ -887,6 +902,11 @@ Public Class DeckLinkPlayerControl
             Return
         End If
 
+        If playbackSpeedMultiplier < 0.0R Then
+            Await OnReverseShuttlePlaybackTimerTickAsync()
+            Return
+        End If
+
         If Math.Abs(playbackSpeedMultiplier) < 0.001R Then
             StopShuttlePlaybackTimer()
             Await HoldCurrentFrameAsync()
@@ -896,14 +916,6 @@ Public Class DeckLinkPlayerControl
         Dim elapsed = DateTime.UtcNow - shuttleClockStartedAtUtc
         Dim position = ClampToSelectedDuration(shuttleClockOffset + ScaleTimeSpan(elapsed, playbackSpeedMultiplier))
         Dim duration = GetSelectedDuration()
-
-        If playbackSpeedMultiplier < 0.0R AndAlso position <= TimeSpan.Zero Then
-            StopShuttlePlaybackTimer()
-            SetScrubberPosition(TimeSpan.Zero)
-            QueueScrubFramePreview(TimeSpan.Zero, updateDeckLink:=True)
-            SetStatus("Shuttle reached start. Holding frame.")
-            Return
-        End If
 
         If playbackSpeedMultiplier > 0.0R AndAlso duration.HasValue AndAlso duration.Value > TimeSpan.Zero AndAlso position >= duration.Value Then
             StopShuttlePlaybackTimer()
@@ -917,6 +929,83 @@ Public Class DeckLinkPlayerControl
         SetScrubberPosition(position)
         QueueScrubFramePreview(position, updateDeckLink:=True)
     End Sub
+
+    Private Async Function OnReverseShuttlePlaybackTimerTickAsync() As Task
+        If reversePlaybackSeekRunning Then
+            Return
+        End If
+
+        If Math.Abs(playbackSpeedMultiplier) < 0.001R Then
+            StopShuttlePlaybackTimer()
+            Await HoldCurrentFrameAsync()
+            Return
+        End If
+
+        Dim frameDuration = GetPlaybackFrameDuration()
+        Dim framesToStep = GetReversePlaybackFrameStep(frameDuration)
+
+        If framesToStep <= 0 Then
+            Return
+        End If
+
+        Dim targetTicks = GetScrubberOffset().Ticks - (frameDuration.Ticks * CLng(framesToStep))
+        Dim reachedStart = targetTicks <= 0
+        Dim target = If(reachedStart, TimeSpan.Zero, ClampToSelectedDuration(TimeSpan.FromTicks(targetTicks)))
+
+        reversePlaybackSeekRunning = True
+
+        Try
+            playbackStartOffset = target
+            SetScrubberPosition(target)
+            QueueScrubFramePreview(target, updateDeckLink:=True)
+            Await WaitForScrubFrameQueueAsync()
+        Finally
+            reversePlaybackSeekRunning = False
+        End Try
+
+        If reachedStart Then
+            StopShuttlePlaybackTimer()
+            playbackSpeedMultiplier = 0.0R
+            UpdateSpeedControls()
+            SetStatus("Reverse reached start. Holding frame.")
+        Else
+            SetStatus($"Reverse shuttle {FormatPlaybackSpeed(playbackSpeedMultiplier)} at {FormatDuration(target)}.")
+        End If
+    End Function
+
+    Private Function GetReversePlaybackFrameStep(frameDuration As TimeSpan) As Integer
+        Dim now = DateTime.UtcNow
+        Dim elapsed = If(reversePlaybackLastTickAtUtc.HasValue, now - reversePlaybackLastTickAtUtc.Value, TimeSpan.FromMilliseconds(shuttlePlaybackTimer.Interval))
+        reversePlaybackLastTickAtUtc = now
+
+        If elapsed <= TimeSpan.Zero Then
+            elapsed = TimeSpan.FromMilliseconds(shuttlePlaybackTimer.Interval)
+        End If
+
+        If elapsed > TimeSpan.FromMilliseconds(250) Then
+            elapsed = TimeSpan.FromMilliseconds(250)
+        End If
+
+        Dim frameSeconds = frameDuration.TotalSeconds
+
+        If frameSeconds <= 0.0R Then
+            frameSeconds = 1.0R / DurationDisplayFrameRate
+        End If
+
+        reversePlaybackFrameCarry += Math.Abs(playbackSpeedMultiplier) * elapsed.TotalSeconds / frameSeconds
+        Dim framesToStep = CInt(Math.Floor(reversePlaybackFrameCarry))
+
+        If framesToStep <= 0 Then
+            Return 0
+        End If
+
+        reversePlaybackFrameCarry -= framesToStep
+        Return framesToStep
+    End Function
+
+    Private Shared Function GetPlaybackFrameDuration() As TimeSpan
+        Return TimeSpan.FromSeconds(1.0R / DurationDisplayFrameRate)
+    End Function
 
     Private Sub ScheduleScrubFramePreview()
         scrubPreviewTimer.Stop()
@@ -1569,10 +1658,34 @@ Public Class DeckLinkPlayerControl
     Private Sub StopShuttlePlaybackTimer()
         shuttlePlaybackTimer.Stop()
         shuttlePlaybackActive = False
+        ResetReversePlaybackStepState()
+        StopReverseCachePlayback()
 
         If Not IsDisposed Then
             UpdatePreviewButtons()
         End If
+    End Sub
+
+    Private Sub ResetReversePlaybackStepState()
+        reversePlaybackFrameCarry = 0.0R
+        reversePlaybackLastTickAtUtc = Nothing
+        reversePlaybackSeekRunning = False
+    End Sub
+
+    Private Sub StopReverseCachePlayback()
+        Dim cancellation = reversePlaybackCancellation
+        reversePlaybackCancellation = Nothing
+
+        If cancellation IsNot Nothing Then
+            cancellation.Cancel()
+        End If
+
+        reversePlaybackTask = Nothing
+        reversePreviewCache?.Dispose()
+        reversePreviewCache = Nothing
+        reverseDeckLinkCache?.Dispose()
+        reverseDeckLinkCache = Nothing
+        DisposeReverseAudio()
     End Sub
 
     Private Async Function HoldCurrentFrameAsync() As Task
@@ -1622,11 +1735,234 @@ Public Class DeckLinkPlayerControl
         playbackStartOffset = ClampToSelectedDuration(GetScrubberOffset())
         shuttleClockOffset = playbackStartOffset
         shuttleClockStartedAtUtc = DateTime.UtcNow
+        ResetReversePlaybackStepState()
+        shuttlePlaybackTimer.Interval = CInt(Math.Max(10, Math.Min(1000, GetPlaybackFrameDuration().TotalMilliseconds)))
         shuttlePlaybackActive = True
         shuttlePlaybackTimer.Start()
         QueueScrubFramePreview(playbackStartOffset, updateDeckLink:=True)
         SetStatus($"Shuttle playback {FormatPlaybackSpeed(playbackSpeedMultiplier)}: {Path.GetFileName(filePath)}")
         UpdatePreviewButtons()
+    End Function
+
+    Private Async Function StartReverseCachedPlaybackAsync(Optional resetToStart As Boolean = False, Optional filePathOverride As String = Nothing) As Task
+        Dim filePath = If(String.IsNullOrWhiteSpace(filePathOverride), GetSelectedFilePath(), filePathOverride)
+        Dim updateSelection = String.IsNullOrWhiteSpace(filePathOverride)
+
+        If String.IsNullOrWhiteSpace(filePath) Then
+            SetStatus("Select a file from the grid first.", warning:=True)
+            Return
+        End If
+
+        If IsImageFile(filePath) Then
+            SetStatus("Reverse speed is for video files.", warning:=True)
+            Return
+        End If
+
+        Dim ffmpegPath = Path.Combine(AppContext.BaseDirectory, "ffmpeg.exe")
+
+        If Not File.Exists(ffmpegPath) Then
+            SetStatus($"ffmpeg.exe not found in {AppContext.BaseDirectory}", warning:=True)
+            Return
+        End If
+
+        If updateSelection Then
+            selectedFilePath = filePath
+        End If
+
+        If Not String.Equals(scrubberLoadedFilePath, filePath, StringComparison.OrdinalIgnoreCase) Then
+            scrubberLoadedFilePath = filePath
+            playbackStartOffset = TimeSpan.Zero
+        End If
+        RefreshScrubberForSelectedFile()
+
+        Dim duration = GetSelectedDuration()
+
+        If Not duration.HasValue OrElse duration.Value <= TimeSpan.Zero Then
+            SetStatus("Duration is required for reverse cache playback.", warning:=True)
+            Return
+        End If
+
+        If resetToStart Then
+            playbackStartOffset = TimeSpan.Zero
+            SetScrubberPosition(TimeSpan.Zero)
+        End If
+
+        StopShuttlePlaybackTimer()
+        scrubPreviewTimer.Stop()
+        pendingScrubFrameOffset = Nothing
+        pendingScrubFrameShouldUpdateDeckLink = False
+        Await WaitForScrubFrameQueueAsync()
+
+        StopPlaybackClock()
+        Await StopPreviewAsync(clearImage:=False, showStateLabel:=False)
+        TearDownAudioMonitor(fast:=True)
+
+        playbackStartOffset = ClampToSelectedDuration(GetScrubberOffset())
+
+        Dim selectedOutputDevice = TryCast(outputDeviceComboBox.SelectedItem, String)
+        Dim selectedOutputMode = TryCast(outputModeComboBox.SelectedItem, DeckLinkOutputMode)
+        Dim useDeckLinkOutput = Not IsNoDeckLinkOutputDevice(selectedOutputDevice) AndAlso selectedOutputMode IsNot Nothing
+        Dim fileHasAudio = Await Task.Run(Function() ProbeHasAudioStream(filePath))
+
+        If Not useDeckLinkOutput AndAlso outputRunner IsNot Nothing Then
+            Await StopOutputAsync()
+        ElseIf useDeckLinkOutput AndAlso outputRunner Is Nothing Then
+            outputRunner = New InProcessDeckLinkOutputRunner()
+        End If
+
+        Dim frameDuration = GetPlaybackFrameDuration()
+        Dim cancellation = New CancellationTokenSource()
+        Dim reverseAudioSpeed = Math.Abs(playbackSpeedMultiplier)
+        Dim reverseAudioEnabled = fileHasAudio AndAlso reverseAudioSpeed <= 20.001R
+        DisposeReverseAudio()
+
+        If useDeckLinkOutput Then
+            reversePreviewCache = Nothing
+            reverseDeckLinkCache = New ReverseFrameCache(ffmpegPath, filePath, selectedOutputMode.Width, selectedOutputMode.Height, 2, "uyvy422", selectedOutputMode.IsInterlaced, frameDuration, playbackSpeedMultiplier, Nothing)
+
+            Try
+                reverseDeckLinkAudioEnabled = Await outputRunner.PrepareCachedFrameOutputAsync(selectedOutputDevice, selectedOutputMode.FormatCode, selectedOutputMode.Width, selectedOutputMode.Height, selectedOutputMode.FrameRate, reverseAudioEnabled, cancellation.Token)
+            Catch ex As Exception
+                cancellation.Dispose()
+                reverseDeckLinkCache?.Dispose()
+                reverseDeckLinkCache = Nothing
+                SetStatus($"Unable to prepare DeckLink reverse output: {ex.Message}", warning:=True)
+                Return
+            End Try
+
+            If reverseAudioEnabled AndAlso reverseDeckLinkAudioEnabled Then
+                reverseDeckLinkAudioOutput = New ReverseDeckLinkAudioOutput(outputRunner, AddressOf SetReverseAudioStatus)
+            End If
+
+            outputRunnerIsScrubHold = True
+            scrubDeckLinkOutputKey = BuildScrubDeckLinkOutputKey(filePath, selectedOutputDevice, selectedOutputMode)
+        Else
+            reversePreviewCache = New ReverseFrameCache(ffmpegPath, filePath, 900, 540, 3, "bgr24", False, frameDuration, playbackSpeedMultiplier, Nothing)
+            reverseDeckLinkCache = Nothing
+            outputRunnerIsScrubHold = False
+            scrubDeckLinkOutputKey = Nothing
+
+            If reverseAudioEnabled AndAlso speakerMonitorEnabledValue Then
+                Try
+                    reverseWaveAudioOutput = New ReverseWaveOutAudioOutput(ReverseAudioChannels, GetReverseAudioMonitorGain(reverseAudioSpeed))
+                Catch ex As Exception
+                    SetReverseAudioStatus($"Reverse Windows audio unavailable: {ex.Message}")
+                End Try
+            End If
+        End If
+
+        If reverseAudioEnabled Then
+            reverseAudio = New ReverseAudioChunkQueue(ffmpegPath, filePath, reverseAudioSpeed, ReverseAudioChannels, playbackStartOffset, AddressOf SetReverseAudioStatus)
+        ElseIf Not fileHasAudio Then
+            reverseAudioLeftDbfs = -90.0R
+            reverseAudioRightDbfs = -90.0R
+        End If
+
+        reversePlaybackCancellation = cancellation
+        shuttlePlaybackActive = True
+        previewStateLabel.Visible = False
+        SetScrubberPosition(playbackStartOffset)
+        SetStatus($"Building reverse cache {FormatPlaybackSpeed(playbackSpeedMultiplier)}: {Path.GetFileName(filePath)}")
+        UpdatePreviewButtons()
+
+        reversePlaybackTask = RunReverseCachedPlaybackAsync(filePath, duration.Value, playbackStartOffset, selectedOutputDevice, selectedOutputMode, cancellation)
+    End Function
+
+    Private Async Function RunReverseCachedPlaybackAsync(filePath As String, duration As TimeSpan, startPosition As TimeSpan, deckLinkDeviceName As String, deckLinkOutputMode As DeckLinkOutputMode, cancellationSource As CancellationTokenSource) As Task
+        Dim cancellationToken = cancellationSource.Token
+        Dim localPreviewCache = reversePreviewCache
+        Dim localDeckLinkCache = reverseDeckLinkCache
+        Dim frameDuration = GetPlaybackFrameDuration()
+        Dim position = ClampToSelectedDuration(startPosition)
+        Dim stopwatch As Stopwatch = Stopwatch.StartNew()
+        Dim frameTicks = Math.Max(1L, CLng(Math.Round(Stopwatch.Frequency * frameDuration.TotalSeconds, MidpointRounding.AwayFromZero)))
+        Dim nextFrameDueTicks = stopwatch.ElapsedTicks
+        Dim sourceFrameCarry = 0.0R
+
+        Try
+            While Not cancellationToken.IsCancellationRequested AndAlso shuttlePlaybackActive AndAlso playbackSpeedMultiplier < 0.0R
+                Dim requestedPosition = position
+                Dim cachedFrame As ReverseDecodedFrame
+
+                If localDeckLinkCache IsNot Nothing Then
+                    cachedFrame = Await Task.Run(Function() localDeckLinkCache.GetFrame(requestedPosition, cancellationToken), cancellationToken)
+                ElseIf localPreviewCache IsNot Nothing Then
+                    cachedFrame = Await Task.Run(Function() localPreviewCache.GetFrame(requestedPosition, cancellationToken), cancellationToken)
+                Else
+                    Throw New InvalidOperationException("Reverse cache is unavailable.")
+                End If
+
+                cancellationToken.ThrowIfCancellationRequested()
+                position = ClampToSelectedDuration(cachedFrame.Position)
+                playbackStartOffset = position
+                SetScrubberPosition(position)
+                PumpReverseAudioFrame(frameDuration, previewOnly:=localDeckLinkCache Is Nothing)
+
+                If localDeckLinkCache IsNot Nothing Then
+                    DisplayReversePreviewUyvyFrame(cachedFrame.Data, deckLinkOutputMode.Width, deckLinkOutputMode.Height)
+                Else
+                    DisplayReversePreviewFrame(cachedFrame.Data)
+                End If
+
+                If localDeckLinkCache IsNot Nothing AndAlso deckLinkOutputMode IsNot Nothing AndAlso outputRunner IsNot Nothing Then
+                    Await outputRunner.DisplayCachedFrameAsync(deckLinkDeviceName, deckLinkOutputMode.FormatCode, deckLinkOutputMode.Width, deckLinkOutputMode.Height, deckLinkOutputMode.FrameRate, cachedFrame.Data, cancellationToken)
+                    outputRunnerIsScrubHold = True
+                End If
+
+                If position <= TimeSpan.Zero Then
+                    playbackSpeedMultiplier = 0.0R
+                    UpdateSpeedControls()
+                    SetStatus("Reverse reached start. Holding frame.")
+                    Exit While
+                End If
+
+                Dim speed = Math.Abs(playbackSpeedMultiplier)
+
+                If speed <= 0.0R Then
+                    Exit While
+                End If
+
+                sourceFrameCarry += speed
+                Dim framesToStep = Math.Max(1, CInt(Math.Floor(sourceFrameCarry)))
+                sourceFrameCarry -= framesToStep
+                Dim nextTicks = position.Ticks - (frameDuration.Ticks * CLng(framesToStep))
+                position = If(nextTicks > 0, TimeSpan.FromTicks(nextTicks), TimeSpan.Zero)
+
+                nextFrameDueTicks += frameTicks
+                Dim delayTicks = nextFrameDueTicks - stopwatch.ElapsedTicks
+
+                If delayTicks > 0 Then
+                    Await Task.Delay(TimeSpan.FromSeconds(delayTicks / CDbl(Stopwatch.Frequency)), cancellationToken)
+                Else
+                    nextFrameDueTicks = stopwatch.ElapsedTicks
+                End If
+            End While
+        Catch ex As OperationCanceledException
+        Catch ex As ObjectDisposedException
+        Catch ex As Exception
+            If Not IsDisposed Then
+                SetStatus($"Reverse cache stopped: {ex.Message}", warning:=True)
+            End If
+        Finally
+            localPreviewCache?.Dispose()
+            localDeckLinkCache?.Dispose()
+
+            If Object.ReferenceEquals(reversePlaybackCancellation, cancellationSource) Then
+                reversePlaybackCancellation = Nothing
+                reversePlaybackTask = Nothing
+                reversePreviewCache = Nothing
+                reverseDeckLinkCache = Nothing
+                shuttlePlaybackActive = False
+                ResetReversePlaybackStepState()
+                DisposeReverseAudio()
+
+                If Not IsDisposed Then
+                    UpdatePreviewButtons()
+                End If
+            End If
+
+            cancellationSource.Dispose()
+        End Try
     End Function
 
     Private Async Function StartSelectedPlaybackAsync(Optional resetToStart As Boolean = False, Optional filePathOverride As String = Nothing) As Task
@@ -1662,7 +1998,7 @@ Public Class DeckLinkPlayerControl
         End If
 
         If playbackSpeedMultiplier < 0.0R Then
-            Await StartShuttlePlaybackAsync(resetToStart, filePath)
+            Await StartReverseCachedPlaybackAsync(resetToStart, filePath)
             Return
         End If
 
@@ -1724,6 +2060,283 @@ Public Class DeckLinkPlayerControl
         playbackFirstPreviewFrameSource = Nothing
         holdPreviewFrameUntilUtc = DateTime.MinValue
         source?.TrySetResult(value)
+    End Sub
+
+    Private Sub DisplayReversePreviewFrame(frameData As Byte())
+        If frameData Is Nothing OrElse frameData.Length = 0 OrElse IsDisposed Then
+            Return
+        End If
+
+        Dim frame = CreateReversePreviewBitmap(frameData, 900, 540, reverseAudioLeftDbfs, reverseAudioRightDbfs)
+        Dim previousImage = previewPictureBox.Image
+        previewPictureBox.Image = frame
+        previewStateLabel.Visible = False
+
+        If previousImage IsNot Nothing Then
+            previousImage.Dispose()
+        End If
+    End Sub
+
+    Private Sub DisplayReversePreviewUyvyFrame(frameData As Byte(), sourceWidth As Integer, sourceHeight As Integer)
+        If frameData Is Nothing OrElse frameData.Length = 0 OrElse sourceWidth <= 0 OrElse sourceHeight <= 0 OrElse IsDisposed Then
+            Return
+        End If
+
+        Dim frame = CreateReversePreviewBitmapFromUyvy(frameData, sourceWidth, sourceHeight, reverseAudioLeftDbfs, reverseAudioRightDbfs)
+        Dim previousImage = previewPictureBox.Image
+        previewPictureBox.Image = frame
+        previewStateLabel.Visible = False
+
+        If previousImage IsNot Nothing Then
+            previousImage.Dispose()
+        End If
+    End Sub
+
+    Private Shared Function CreateReversePreviewBitmap(frameData As Byte(), videoWidth As Integer, videoHeight As Integer, leftDbfs As Double, rightDbfs As Double) As Bitmap
+        Const meterOutputWidth As Integer = 30
+        Dim videoBitmap As New Bitmap(videoWidth, videoHeight, PixelFormat.Format24bppRgb)
+        Dim bounds As New Rectangle(0, 0, videoWidth, videoHeight)
+        Dim bitmapData = videoBitmap.LockBits(bounds, ImageLockMode.WriteOnly, PixelFormat.Format24bppRgb)
+
+        Try
+            Dim sourceStride = videoWidth * 3
+            Dim copyBytes = Math.Min(sourceStride, Math.Abs(bitmapData.Stride))
+
+            For row = 0 To videoHeight - 1
+                Dim sourceOffset = row * sourceStride
+                Dim destination = IntPtr.Add(bitmapData.Scan0, row * bitmapData.Stride)
+                Marshal.Copy(frameData, sourceOffset, destination, copyBytes)
+            Next
+        Finally
+            videoBitmap.UnlockBits(bitmapData)
+        End Try
+
+        Dim composite As New Bitmap(videoWidth + (meterOutputWidth * 2), videoHeight, PixelFormat.Format24bppRgb)
+
+        Using graphics As Graphics = Graphics.FromImage(composite)
+            graphics.Clear(Color.Black)
+            DrawReverseMeterRail(graphics, New Rectangle(0, 0, meterOutputWidth, videoHeight), leftDbfs)
+            graphics.DrawImage(videoBitmap, meterOutputWidth, 0, videoWidth, videoHeight)
+            DrawReverseMeterRail(graphics, New Rectangle(meterOutputWidth + videoWidth, 0, meterOutputWidth, videoHeight), rightDbfs)
+        End Using
+
+        videoBitmap.Dispose()
+        Return composite
+    End Function
+
+    Private Shared Function CreateReversePreviewBitmapFromUyvy(uyvyFrame As Byte(), sourceWidth As Integer, sourceHeight As Integer, leftDbfs As Double, rightDbfs As Double) As Bitmap
+        Const previewVideoWidth As Integer = 900
+        Const previewVideoHeight As Integer = 540
+        Const meterOutputWidth As Integer = 30
+
+        If uyvyFrame.Length < sourceWidth * sourceHeight * 2 Then
+            Throw New InvalidOperationException("Reverse preview frame is smaller than expected.")
+        End If
+
+        Dim videoBitmap As New Bitmap(previewVideoWidth, previewVideoHeight, PixelFormat.Format24bppRgb)
+        Dim bounds As New Rectangle(0, 0, previewVideoWidth, previewVideoHeight)
+        Dim bitmapData = videoBitmap.LockBits(bounds, ImageLockMode.WriteOnly, PixelFormat.Format24bppRgb)
+
+        Try
+            Dim row(previewVideoWidth * 3 - 1) As Byte
+
+            For y = 0 To previewVideoHeight - 1
+                Dim sourceY = Math.Min(sourceHeight - 1, y * sourceHeight \ previewVideoHeight)
+
+                For x = 0 To previewVideoWidth - 1
+                    Dim sourceX = Math.Min(sourceWidth - 1, x * sourceWidth \ previewVideoWidth)
+                    Dim pairX = sourceX And Not 1
+
+                    If pairX >= sourceWidth - 1 Then
+                        pairX = Math.Max(0, sourceWidth - 2)
+                    End If
+
+                    Dim sourceOffset = (sourceY * sourceWidth + pairX) * 2
+                    Dim uValue = uyvyFrame(sourceOffset)
+                    Dim vValue = uyvyFrame(sourceOffset + 2)
+                    Dim yValue = If(sourceX = pairX, uyvyFrame(sourceOffset + 1), uyvyFrame(sourceOffset + 3))
+                    Dim red As Byte = 0
+                    Dim green As Byte = 0
+                    Dim blue As Byte = 0
+                    ConvertYuvToRgb(yValue, uValue, vValue, red, green, blue)
+
+                    Dim destination = x * 3
+                    row(destination) = blue
+                    row(destination + 1) = green
+                    row(destination + 2) = red
+                Next
+
+                Dim destinationRow = IntPtr.Add(bitmapData.Scan0, y * bitmapData.Stride)
+                Marshal.Copy(row, 0, destinationRow, row.Length)
+            Next
+        Finally
+            videoBitmap.UnlockBits(bitmapData)
+        End Try
+
+        Dim composite As New Bitmap(previewVideoWidth + (meterOutputWidth * 2), previewVideoHeight, PixelFormat.Format24bppRgb)
+
+        Using graphics As Graphics = Graphics.FromImage(composite)
+            graphics.Clear(Color.Black)
+            DrawReverseMeterRail(graphics, New Rectangle(0, 0, meterOutputWidth, previewVideoHeight), leftDbfs)
+            graphics.DrawImage(videoBitmap, meterOutputWidth, 0, previewVideoWidth, previewVideoHeight)
+            DrawReverseMeterRail(graphics, New Rectangle(meterOutputWidth + previewVideoWidth, 0, meterOutputWidth, previewVideoHeight), rightDbfs)
+        End Using
+
+        videoBitmap.Dispose()
+        Return composite
+    End Function
+
+    Private Shared Sub ConvertYuvToRgb(yValue As Byte, uValue As Byte, vValue As Byte, ByRef red As Byte, ByRef green As Byte, ByRef blue As Byte)
+        Dim c = CInt(yValue) - 16
+        Dim d = CInt(uValue) - 128
+        Dim e = CInt(vValue) - 128
+        red = ClampToByte((298 * c + 409 * e + 128) >> 8)
+        green = ClampToByte((298 * c - 100 * d - 208 * e + 128) >> 8)
+        blue = ClampToByte((298 * c + 516 * d + 128) >> 8)
+    End Sub
+
+    Private Shared Function ClampToByte(value As Integer) As Byte
+        Return CByte(Math.Max(0, Math.Min(255, value)))
+    End Function
+
+    Private Shared Sub DrawReverseMeterRail(graphics As Graphics, bounds As Rectangle, dbfs As Double)
+        Using fillBrush As New SolidBrush(Color.Black)
+            graphics.FillRectangle(fillBrush, bounds)
+        End Using
+
+        Dim normalized = Math.Max(0.0R, Math.Min(1.0R, (dbfs + 60.0R) / 60.0R))
+
+        If normalized > 0.001R Then
+            Dim inset = 4
+            Dim levelHeight = Math.Max(1, CInt(Math.Round((bounds.Height - inset * 2) * normalized, MidpointRounding.AwayFromZero)))
+            Dim levelBounds As New Rectangle(bounds.X + inset, bounds.Bottom - inset - levelHeight, Math.Max(1, bounds.Width - inset * 2), levelHeight)
+            Dim fillColor = If(dbfs > -9.0R, Color.FromArgb(232, 181, 105), Color.FromArgb(91, 190, 125))
+
+            Using levelBrush As New SolidBrush(fillColor)
+                graphics.FillRectangle(levelBrush, levelBounds)
+            End Using
+        End If
+
+        Using borderPen As New Pen(Color.FromArgb(86, 97, 109), 2.0F)
+            graphics.DrawRectangle(borderPen, bounds.X, bounds.Y, Math.Max(0, bounds.Width - 1), Math.Max(0, bounds.Height - 1))
+        End Using
+    End Sub
+
+    Private Sub PumpReverseAudioFrame(frameDuration As TimeSpan, previewOnly As Boolean)
+        Dim audioQueue = reverseAudio
+
+        If audioQueue Is Nothing Then
+            Return
+        End If
+
+        Dim audioFrame = audioQueue.ReadFrame(frameDuration)
+        Dim audioByteCount = audioFrame.SampleFrames * ReverseAudioChannels * 4
+
+        If audioFrame.HasAudio Then
+            UpdateReverseAudioMeters(audioFrame.Pcm, audioFrame.SampleFrames)
+        Else
+            reverseAudioLeftDbfs = -90.0R
+            reverseAudioRightDbfs = -90.0R
+        End If
+
+        reverseWaveAudioOutput?.Enqueue(audioFrame.Pcm, audioByteCount)
+        WriteReverseDeckLinkAudio(audioFrame.Pcm, audioFrame.SampleFrames, previewOnly)
+    End Sub
+
+    Private Sub WriteReverseDeckLinkAudio(pcm As Byte(), sampleFrames As Integer, previewOnly As Boolean)
+        If Not reverseDeckLinkAudioEnabled OrElse previewOnly OrElse sampleFrames <= 0 Then
+            Return
+        End If
+
+        Dim audioByteCount = sampleFrames * ReverseAudioChannels * 4
+
+        If reverseDeckLinkAudioOutput IsNot Nothing Then
+            If Not reverseDeckLinkAudioOutput.Enqueue(pcm, audioByteCount, sampleFrames) Then
+                reverseDeckLinkAudioEnabled = False
+            End If
+        End If
+    End Sub
+
+    Private Sub UpdateReverseAudioMeters(pcm As Byte(), sampleFrames As Integer)
+        Dim bytesPerSampleFrame = ReverseAudioChannels * 4
+
+        If pcm Is Nothing OrElse sampleFrames <= 0 OrElse pcm.Length < bytesPerSampleFrame Then
+            reverseAudioLeftDbfs = -90.0R
+            reverseAudioRightDbfs = -90.0R
+            Return
+        End If
+
+        Dim usableSampleFrames = Math.Min(sampleFrames, pcm.Length \ bytesPerSampleFrame)
+        Dim peakLeft = 0L
+        Dim peakRight = 0L
+
+        For sampleFrame = 0 To usableSampleFrames - 1
+            Dim offset = sampleFrame * bytesPerSampleFrame
+            Dim left = BinaryPrimitives.ReadInt32LittleEndian(pcm.AsSpan(offset, 4))
+            Dim right = BinaryPrimitives.ReadInt32LittleEndian(pcm.AsSpan(offset + 4, 4))
+            peakLeft = Math.Max(peakLeft, Math.Abs(CLng(left)))
+            peakRight = Math.Max(peakRight, Math.Abs(CLng(right)))
+        Next
+
+        reverseAudioLeftDbfs = ToDbfs(peakLeft)
+        reverseAudioRightDbfs = ToDbfs(peakRight)
+    End Sub
+
+    Private Shared Function ToDbfs(peak As Long) As Double
+        If peak <= 0 Then
+            Return -90.0R
+        End If
+
+        Dim normalized = Math.Min(1.0R, peak / CDbl(Integer.MaxValue))
+        Return Math.Max(-90.0R, 20.0R * Math.Log10(normalized))
+    End Function
+
+    Private Shared Function GetReverseAudioMonitorGain(speed As Double) As Double
+        If speed >= 10.0R Then
+            Return 0.45R
+        End If
+
+        If speed >= 5.0R Then
+            Return 0.65R
+        End If
+
+        Return 0.85R
+    End Function
+
+    Private Sub DisposeReverseAudio()
+        reverseDeckLinkAudioEnabled = False
+        reverseDeckLinkAudioOutput?.Dispose()
+        reverseDeckLinkAudioOutput = Nothing
+        reverseWaveAudioOutput?.Dispose()
+        reverseWaveAudioOutput = Nothing
+        reverseAudio?.Dispose()
+        reverseAudio = Nothing
+        reverseAudioLeftDbfs = -90.0R
+        reverseAudioRightDbfs = -90.0R
+    End Sub
+
+    Private Sub SetReverseAudioStatus(message As String)
+        If String.IsNullOrWhiteSpace(message) OrElse IsDisposed Then
+            Return
+        End If
+
+        If InvokeRequired Then
+            Try
+                BeginInvoke(New Action(Of String)(AddressOf SetReverseAudioStatus), message)
+            Catch
+            End Try
+
+            Return
+        End If
+
+        Dim warning = IsDeckLinkOutputWarning(message) OrElse
+            message.IndexOf("unavailable", StringComparison.OrdinalIgnoreCase) >= 0 OrElse
+            message.IndexOf("disabled", StringComparison.OrdinalIgnoreCase) >= 0 OrElse
+            message.IndexOf("stopped", StringComparison.OrdinalIgnoreCase) >= 0
+
+        If warning Then
+            SetStatus(message, warning:=True)
+        End If
     End Sub
 
     Private Async Function StartPreviewAsync(filePath As String, startOffset As TimeSpan) As Task

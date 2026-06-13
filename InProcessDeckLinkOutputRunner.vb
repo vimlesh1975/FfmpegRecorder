@@ -78,6 +78,96 @@ Friend NotInheritable Class InProcessDeckLinkOutputRunner
             cancellationToken)
     End Function
 
+    Public Async Function DisplayCachedFrameAsync(deviceName As String, formatCode As String, width As Integer, height As Integer, frameRate As String, frameBytes As Byte(), cancellationToken As CancellationToken) As Task
+        ThrowIfDisposed()
+        cancellationToken.ThrowIfCancellationRequested()
+
+        Await Task.Run(
+            Sub()
+                cancellationToken.ThrowIfCancellationRequested()
+
+                SyncLock lifecycleLock
+                    ThrowIfDisposed()
+                    cancellationToken.ThrowIfCancellationRequested()
+                    EnsureOutputLocked(deviceName, formatCode, width, height, frameRate)
+                    DisplayRawFrameLocked(frameBytes)
+                End SyncLock
+            End Sub,
+            cancellationToken)
+    End Function
+
+    Public Async Function PrepareCachedFrameOutputAsync(deviceName As String, formatCode As String, width As Integer, height As Integer, frameRate As String, enableAudio As Boolean, cancellationToken As CancellationToken) As Task(Of Boolean)
+        ThrowIfDisposed()
+        cancellationToken.ThrowIfCancellationRequested()
+
+        Dim audioEnabled = False
+
+        Await Task.Run(
+            Sub()
+                cancellationToken.ThrowIfCancellationRequested()
+                StopPlayback(disableVideoOutput:=False)
+
+                SyncLock lifecycleLock
+                    ThrowIfDisposed()
+                    cancellationToken.ThrowIfCancellationRequested()
+                    EnsureOutputLocked(deviceName, formatCode, width, height, frameRate)
+
+                    If enableAudio Then
+                        EnableAudioOutputLocked()
+                        audioEnabled = audioOutputEnabled
+                    Else
+                        DisableAudioOutputLocked()
+                    End If
+                End SyncLock
+            End Sub,
+            cancellationToken)
+
+        Return audioEnabled
+    End Function
+
+    Public Async Function WriteCachedAudioSamplesAsync(pcm As Byte(), byteCount As Integer, sampleFrameCount As Integer, cancellationToken As CancellationToken) As Task(Of Boolean)
+        ThrowIfDisposed()
+        cancellationToken.ThrowIfCancellationRequested()
+
+        Dim bytesPerSampleFrame = AudioChannels * AudioBytesPerSample
+        byteCount = Math.Min(If(pcm?.Length, 0), byteCount)
+        sampleFrameCount = Math.Min(sampleFrameCount, byteCount \ bytesPerSampleFrame)
+
+        If byteCount <= 0 OrElse sampleFrameCount <= 0 Then
+            Return False
+        End If
+
+        Dim activeOutput As IDeckLinkOutput_v14_2_1 = Nothing
+
+        SyncLock lifecycleLock
+            If output Is Nothing OrElse Not audioOutputEnabled Then
+                Return False
+            End If
+
+            activeOutput = output
+        End SyncLock
+
+        Dim unmanagedBuffer = Marshal.AllocHGlobal(sampleFrameCount * bytesPerSampleFrame)
+
+        Try
+            Marshal.Copy(pcm, 0, unmanagedBuffer, sampleFrameCount * bytesPerSampleFrame)
+            Await WriteAudioSamplesFullyAsync(activeOutput, unmanagedBuffer, sampleFrameCount, bytesPerSampleFrame, cancellationToken)
+            Return True
+        Catch ex As OperationCanceledException
+            Throw
+        Catch ex As ObjectDisposedException
+            Return False
+        Catch ex As COMException
+            RaiseEvent LogReceived($"reverse_audio_write_failed: {ex.Message}")
+            Return False
+        Catch ex As InvalidOperationException
+            RaiseEvent LogReceived($"reverse_audio_write_failed: {ex.Message}")
+            Return False
+        Finally
+            Marshal.FreeHGlobal(unmanagedBuffer)
+        End Try
+    End Function
+
     Public Async Function StartPlaybackAsync(ffmpegPath As String, filePath As String, deviceName As String, formatCode As String, width As Integer, height As Integer, frameRate As String, isInterlaced As Boolean, hasAudioStream As Boolean, startOffset As TimeSpan, playbackSpeed As Double) As Task
         ThrowIfDisposed()
 
