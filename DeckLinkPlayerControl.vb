@@ -267,10 +267,10 @@ Public Class DeckLinkPlayerControl
         rootLayout.RowCount = 5
         rootLayout.RowStyles.Add(New RowStyle(SizeType.Absolute, 32.0F))
         rootLayout.RowStyles.Add(New RowStyle(SizeType.Absolute, 36.0F))
-        rootLayout.RowStyles.Add(New RowStyle(SizeType.Absolute, 226.0F))
+        rootLayout.RowStyles.Add(New RowStyle(SizeType.Absolute, 166.0F))
         rootLayout.RowStyles.Add(New RowStyle(SizeType.Absolute, 558.0F))
         rootLayout.RowStyles.Add(New RowStyle(SizeType.Absolute, 24.0F))
-        rootLayout.Size = New Size(760, 892)
+        rootLayout.Size = New Size(760, 832)
 
         toolbarPanel.ColumnCount = 4
         toolbarPanel.ColumnStyles.Add(New ColumnStyle(SizeType.AutoSize))
@@ -350,7 +350,7 @@ Public Class DeckLinkPlayerControl
         browserSplit.Dock = DockStyle.Fill
         browserSplit.Margin = New Padding(0, 0, 0, 8)
         browserSplit.Orientation = Orientation.Vertical
-        browserSplit.Size = New Size(744, 226)
+        browserSplit.Size = New Size(744, 166)
         browserSplit.Panel1MinSize = 140
         browserSplit.Panel2MinSize = 180
         browserSplit.SplitterDistance = 185
