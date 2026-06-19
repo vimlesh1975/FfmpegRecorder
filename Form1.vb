@@ -536,12 +536,10 @@ Partial Public Class RecorderControl
         Dim panel As New TableLayoutPanel() With {
             .Dock = DockStyle.Top,
             .ColumnCount = 1,
-            .RowCount = 5,
+            .RowCount = 3,
             .AutoSize = True,
             .Margin = New Padding(0, 0, 0, 8)
         }
-        panel.RowStyles.Add(New RowStyle(SizeType.AutoSize))
-        panel.RowStyles.Add(New RowStyle(SizeType.AutoSize))
         panel.RowStyles.Add(New RowStyle(SizeType.AutoSize))
         panel.RowStyles.Add(New RowStyle(SizeType.AutoSize))
         panel.RowStyles.Add(New RowStyle(SizeType.AutoSize))
@@ -621,11 +619,12 @@ Partial Public Class RecorderControl
 
         Dim inputRow As New TableLayoutPanel() With {
             .AutoSize = True,
-            .ColumnCount = 5,
+            .ColumnCount = 6,
             .RowCount = 1,
             .Dock = DockStyle.Fill,
             .Margin = New Padding(0, 2, 0, 0)
         }
+        inputRow.ColumnStyles.Add(New ColumnStyle(SizeType.AutoSize))
         inputRow.ColumnStyles.Add(New ColumnStyle(SizeType.AutoSize))
         inputRow.ColumnStyles.Add(New ColumnStyle(SizeType.AutoSize))
         inputRow.ColumnStyles.Add(New ColumnStyle(SizeType.AutoSize))
@@ -662,7 +661,7 @@ Partial Public Class RecorderControl
         palAspectComboBox.DropDownStyle = ComboBoxStyle.DropDownList
         palAspectComboBox.Width = 90
         palAspectComboBox.Anchor = AnchorStyles.Left
-        palAspectComboBox.Margin = New Padding(0, 3, 0, 3)
+        palAspectComboBox.Margin = New Padding(0, 3, 8, 3)
         palAspectComboBox.Items.AddRange(New Object() {
             PalAspect4By3,
             PalAspect16By9
@@ -683,16 +682,6 @@ Partial Public Class RecorderControl
         deviceRow.ColumnStyles.Add(New ColumnStyle(SizeType.AutoSize))
         deviceRow.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 100.0F))
         deviceRow.RowStyles.Add(New RowStyle(SizeType.AutoSize))
-
-        Dim deviceInfoRow As New TableLayoutPanel() With {
-            .AutoSize = True,
-            .ColumnCount = 1,
-            .RowCount = 1,
-            .Dock = DockStyle.Fill,
-            .Margin = New Padding(0, 0, 0, 0)
-        }
-        deviceInfoRow.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 100.0F))
-        deviceInfoRow.RowStyles.Add(New RowStyle(SizeType.AutoSize))
 
         Dim deviceLabel As New Label() With {
             .AutoSize = True,
@@ -734,9 +723,9 @@ Partial Public Class RecorderControl
         recordingElapsedLabel.Size = New Size(104, 22)
         recordingElapsedLabel.MinimumSize = recordingElapsedLabel.Size
         recordingElapsedLabel.MaximumSize = recordingElapsedLabel.Size
-        recordingElapsedLabel.TextAlign = ContentAlignment.MiddleRight
-        recordingElapsedLabel.Anchor = AnchorStyles.Right
-        recordingElapsedLabel.Margin = New Padding(0, 6, 0, 0)
+        recordingElapsedLabel.TextAlign = ContentAlignment.MiddleLeft
+        recordingElapsedLabel.Anchor = AnchorStyles.Left
+        recordingElapsedLabel.Margin = New Padding(0, 4, 0, 0)
 
         AddHandler recordButton.Click, AddressOf StartRecording
         AddHandler stopButton.Click, AddressOf StopRecording
@@ -751,6 +740,7 @@ Partial Public Class RecorderControl
         inputRow.Controls.Add(inputModeComboBox, 1, 0)
         inputRow.Controls.Add(palAspectLabel, 2, 0)
         inputRow.Controls.Add(palAspectComboBox, 3, 0)
+        inputRow.Controls.Add(recordingElapsedLabel, 4, 0)
 
         deviceRow.Controls.Add(deviceLabel, 0, 0)
         deviceRow.Controls.Add(deviceComboBox, 1, 0)
@@ -758,12 +748,9 @@ Partial Public Class RecorderControl
         deviceRow.Controls.Add(stopButton, 3, 0)
         deviceRow.Controls.Add(includeInRecordAllCheckBox, 4, 0)
 
-        deviceInfoRow.Controls.Add(recordingElapsedLabel, 0, 0)
-
         panel.Controls.Add(headerRow, 0, 0)
         panel.Controls.Add(inputRow, 0, 1)
         panel.Controls.Add(deviceRow, 0, 2)
-        panel.Controls.Add(deviceInfoRow, 0, 3)
         UpdateRecordingModeUiState()
         UpdatePalAspectUiState()
 
