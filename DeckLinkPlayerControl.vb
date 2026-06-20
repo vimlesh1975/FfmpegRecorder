@@ -25,6 +25,7 @@ Public Class DeckLinkPlayerControl
     Private Const SeekPreviewFrameDelayMs As Integer = 12
     Private Const ReverseAudioChannels As Integer = 2
     Private Const GrowingDurationRefreshIntervalMs As Integer = 2000
+    Private Const EmptyMarkText As String = "--:--:--:--"
     Private Shared ReadOnly GrowingFileRecentWriteWindow As TimeSpan = TimeSpan.FromSeconds(90)
 
     Private Shared ReadOnly SeekPreviewBurstFrameInterval As TimeSpan = TimeSpan.FromSeconds(1.0R / DurationDisplayFrameRate)
@@ -110,6 +111,15 @@ Public Class DeckLinkPlayerControl
     Private ReadOnly selectedFileLabel As New Label()
     Private ReadOnly previewStateHostPanel As New Panel()
     Private ReadOnly speedButtonsPanel As New FlowLayoutPanel()
+    Private ReadOnly markControlsPanel As New FlowLayoutPanel()
+    Private ReadOnly markInButton As New Button()
+    Private ReadOnly markOutButton As New Button()
+    Private ReadOnly markInTextBox As New TextBox()
+    Private ReadOnly markOutTextBox As New TextBox()
+    Private ReadOnly gotoInButton As New Button()
+    Private ReadOnly gotoOutButton As New Button()
+    Private ReadOnly playFromInButton As New Button()
+    Private ReadOnly playFromOutButton As New Button()
     Private ReadOnly previewPictureBox As New PictureBox()
     Private ReadOnly previewStateLabel As New Label()
     Private ReadOnly scrubberPanel As New TableLayoutPanel()
@@ -121,6 +131,7 @@ Public Class DeckLinkPlayerControl
     Private ReadOnly growingDurationRefreshTimer As New System.Windows.Forms.Timer()
     Private ReadOnly statusLabel As New Label()
     Private ReadOnly speedPresetButtons As New List(Of Button)()
+    Private ReadOnly markButtons As New List(Of Button)()
 
     Private WithEvents previewRunner As PreviewFrameReader
     Private WithEvents outputRunner As InProcessDeckLinkOutputRunner
@@ -167,6 +178,8 @@ Public Class DeckLinkPlayerControl
     Private scrubFrameRequestGeneration As Integer
     Private currentScrubFrameCancellation As CancellationTokenSource
     Private lastScrubPreviewOffset As TimeSpan?
+    Private markInPosition As TimeSpan?
+    Private markOutPosition As TimeSpan?
     Private isGrowingDurationRefreshRunning As Boolean
     Private playbackFirstPreviewFrameSource As TaskCompletionSource(Of Boolean)
     Private holdPreviewFrameUntilUtc As DateTime
@@ -190,6 +203,16 @@ Public Class DeckLinkPlayerControl
         AddHandler filesGridView.KeyDown, AddressOf OnFilesGridKeyDown
         AddHandler previewButton.Click, AddressOf OnPreviewClicked
         AddHandler stopPreviewButton.Click, AddressOf OnStopPreviewClicked
+        AddHandler markInButton.Click, AddressOf OnMarkInClicked
+        AddHandler markOutButton.Click, AddressOf OnMarkOutClicked
+        AddHandler gotoInButton.Click, AddressOf OnGotoInClicked
+        AddHandler gotoOutButton.Click, AddressOf OnGotoOutClicked
+        AddHandler playFromInButton.Click, AddressOf OnPlayFromInClicked
+        AddHandler playFromOutButton.Click, AddressOf OnPlayFromOutClicked
+        AddHandler markInTextBox.Leave, AddressOf OnMarkFieldLeave
+        AddHandler markOutTextBox.Leave, AddressOf OnMarkFieldLeave
+        AddHandler markInTextBox.KeyDown, AddressOf OnMarkFieldKeyDown
+        AddHandler markOutTextBox.KeyDown, AddressOf OnMarkFieldKeyDown
         AddHandler outputDeviceComboBox.SelectedIndexChanged, AddressOf OnOutputSelectionChanged
         AddHandler outputModeComboBox.SelectedIndexChanged, AddressOf OnOutputSelectionChanged
         AddHandler scrubberTrackBar.MouseDown, AddressOf OnScrubberMouseDown
@@ -387,11 +410,12 @@ Public Class DeckLinkPlayerControl
         previewPanel.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 100.0F))
         previewPanel.Dock = DockStyle.Fill
         previewPanel.Margin = New Padding(0)
-        previewPanel.RowCount = 4
+        previewPanel.RowCount = 5
         previewPanel.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
         previewPanel.RowStyles.Add(New RowStyle(SizeType.Absolute, 42.0F))
         previewPanel.RowStyles.Add(New RowStyle(SizeType.Absolute, 36.0F))
-        previewPanel.RowStyles.Add(New RowStyle(SizeType.Absolute, 64.0F))
+        previewPanel.RowStyles.Add(New RowStyle(SizeType.Absolute, 32.0F))
+        previewPanel.RowStyles.Add(New RowStyle(SizeType.Absolute, 34.0F))
 
         previewToolbarPanel.Dock = DockStyle.Fill
         previewToolbarPanel.FlowDirection = FlowDirection.LeftToRight
@@ -441,6 +465,38 @@ Public Class DeckLinkPlayerControl
             AddSpeedPresetButton(speed)
         Next
 
+        markControlsPanel.Dock = DockStyle.Fill
+        markControlsPanel.FlowDirection = FlowDirection.LeftToRight
+        markControlsPanel.Margin = New Padding(0, 1, 0, 0)
+        markControlsPanel.WrapContents = False
+
+        ConfigureTransportButton(markInButton, "Mark In", 66)
+        ConfigureTransportButton(markOutButton, "Mark Out", 72)
+        ConfigureMarkTextBox(markInTextBox)
+        ConfigureMarkTextBox(markOutTextBox)
+        ConfigureTransportButton(gotoInButton, "Goto In", 66)
+        ConfigureTransportButton(gotoOutButton, "Goto Out", 74)
+        ConfigureTransportButton(playFromInButton, "Play From In", 94)
+        ConfigureTransportButton(playFromOutButton, "Play From Out", 104)
+
+        markButtons.AddRange(New Button() {
+            markInButton,
+            markOutButton,
+            gotoInButton,
+            gotoOutButton,
+            playFromInButton,
+            playFromOutButton
+        })
+
+        markControlsPanel.Controls.Add(markInButton)
+        markControlsPanel.Controls.Add(markOutButton)
+        markControlsPanel.Controls.Add(markInTextBox)
+        markControlsPanel.Controls.Add(markOutTextBox)
+        markControlsPanel.Controls.Add(gotoInButton)
+        markControlsPanel.Controls.Add(gotoOutButton)
+        markControlsPanel.Controls.Add(playFromInButton)
+        markControlsPanel.Controls.Add(playFromOutButton)
+
         previewPictureBox.BackColor = Color.Black
         previewPictureBox.BorderStyle = BorderStyle.FixedSingle
         previewPictureBox.Dock = DockStyle.Fill
@@ -485,6 +541,7 @@ Public Class DeckLinkPlayerControl
         previewPanel.Controls.Add(scrubberPanel, 0, 1)
         previewPanel.Controls.Add(previewToolbarPanel, 0, 2)
         previewPanel.Controls.Add(speedButtonsPanel, 0, 3)
+        previewPanel.Controls.Add(markControlsPanel, 0, 4)
 
         statusLabel.AutoEllipsis = True
         statusLabel.Dock = DockStyle.Fill
@@ -514,6 +571,22 @@ Public Class DeckLinkPlayerControl
         AddHandler button.Click, AddressOf OnPlaybackSpeedClicked
         speedPresetButtons.Add(button)
         speedButtonsPanel.Controls.Add(button)
+    End Sub
+
+    Private Shared Sub ConfigureTransportButton(button As Button, text As String, width As Integer)
+        button.AutoSize = False
+        button.Margin = New Padding(0, 0, 2, 0)
+        button.Size = New Size(width, 26)
+        button.Text = text
+        button.UseVisualStyleBackColor = True
+    End Sub
+
+    Private Shared Sub ConfigureMarkTextBox(textBox As TextBox)
+        textBox.AutoSize = False
+        textBox.Margin = New Padding(0, 1, 4, 0)
+        textBox.Size = New Size(88, 24)
+        textBox.Text = EmptyMarkText
+        textBox.TextAlign = HorizontalAlignment.Center
     End Sub
 
     Private Sub OnControlLoaded(sender As Object, e As EventArgs)
@@ -767,6 +840,232 @@ Public Class DeckLinkPlayerControl
             Await StartSelectedPlaybackAsync(filePathOverride:=restartFilePath)
         End If
     End Function
+
+    Private Sub OnMarkInClicked(sender As Object, e As EventArgs)
+        MarkCurrentPosition(isMarkIn:=True)
+    End Sub
+
+    Private Sub OnMarkOutClicked(sender As Object, e As EventArgs)
+        MarkCurrentPosition(isMarkIn:=False)
+    End Sub
+
+    Private Async Sub OnGotoInClicked(sender As Object, e As EventArgs)
+        Dim position As TimeSpan
+
+        If TryGetMarkPosition("In", markInTextBox, markInPosition, position) Then
+            markInPosition = position
+            Await GoToMarkAsync("In", position)
+        End If
+    End Sub
+
+    Private Async Sub OnGotoOutClicked(sender As Object, e As EventArgs)
+        Dim position As TimeSpan
+
+        If TryGetMarkPosition("Out", markOutTextBox, markOutPosition, position) Then
+            markOutPosition = position
+            Await GoToMarkAsync("Out", position)
+        End If
+    End Sub
+
+    Private Async Sub OnPlayFromInClicked(sender As Object, e As EventArgs)
+        Dim position As TimeSpan
+
+        If TryGetMarkPosition("In", markInTextBox, markInPosition, position) Then
+            markInPosition = position
+            Await PlayFromMarkAsync("In", position)
+        End If
+    End Sub
+
+    Private Async Sub OnPlayFromOutClicked(sender As Object, e As EventArgs)
+        Dim position As TimeSpan
+
+        If TryGetMarkPosition("Out", markOutTextBox, markOutPosition, position) Then
+            markOutPosition = position
+            Await PlayFromMarkAsync("Out", position)
+        End If
+    End Sub
+
+    Private Sub OnMarkFieldLeave(sender As Object, e As EventArgs)
+        NormalizeMarkField(TryCast(sender, TextBox), warnInvalid:=False)
+    End Sub
+
+    Private Sub OnMarkFieldKeyDown(sender As Object, e As KeyEventArgs)
+        If e.KeyCode <> Keys.Enter Then
+            Return
+        End If
+
+        e.Handled = True
+        e.SuppressKeyPress = True
+        NormalizeMarkField(TryCast(sender, TextBox), warnInvalid:=True)
+    End Sub
+
+    Private Sub MarkCurrentPosition(isMarkIn As Boolean)
+        Dim position As TimeSpan
+
+        If Not TryGetCurrentMarkablePosition(position) Then
+            Return
+        End If
+
+        position = ClampToSelectedDuration(position)
+
+        If isMarkIn Then
+            markInPosition = position
+            markInTextBox.Text = FormatDuration(position)
+            SetStatus($"Mark In set at {FormatDuration(position)}.")
+        Else
+            markOutPosition = position
+            markOutTextBox.Text = FormatDuration(position)
+            SetStatus($"Mark Out set at {FormatDuration(position)}.")
+        End If
+
+        UpdatePreviewButtons()
+    End Sub
+
+    Private Function TryGetCurrentMarkablePosition(ByRef position As TimeSpan) As Boolean
+        position = TimeSpan.Zero
+
+        If Not IsScrubberLoaded() OrElse Not scrubberTrackBar.Enabled Then
+            SetStatus("Load a clip in the player before using marks.", warning:=True)
+            Return False
+        End If
+
+        position = GetCurrentTimelinePosition()
+        Return True
+    End Function
+
+    Private Function GetCurrentTimelinePosition() As TimeSpan
+        If playbackPositionTimer.Enabled Then
+            Dim elapsed = DateTime.UtcNow - playbackClockStartedAtUtc
+            Return ClampToSelectedDuration(playbackClockOffset + ScaleTimeSpan(elapsed, Math.Max(0.0R, playbackSpeedMultiplier)))
+        End If
+
+        If scrubberTrackBar.Enabled Then
+            Return GetScrubberOffset()
+        End If
+
+        Return ClampToSelectedDuration(playbackStartOffset)
+    End Function
+
+    Private Function TryGetMarkPosition(markName As String, textBox As TextBox, storedMark As TimeSpan?, ByRef position As TimeSpan) As Boolean
+        position = TimeSpan.Zero
+
+        If Not IsScrubberLoaded() OrElse Not scrubberTrackBar.Enabled Then
+            SetStatus("Load a clip in the player before using marks.", warning:=True)
+            Return False
+        End If
+
+        Dim text = If(textBox.Text, String.Empty).Trim()
+
+        If String.IsNullOrWhiteSpace(text) OrElse String.Equals(text, EmptyMarkText, StringComparison.Ordinal) Then
+            If storedMark.HasValue Then
+                position = ClampToSelectedDuration(storedMark.Value)
+                textBox.Text = FormatDuration(position)
+                Return True
+            End If
+
+            SetStatus($"Mark {markName} is not set.", warning:=True)
+            Return False
+        End If
+
+        Dim parsed As TimeSpan
+
+        If Not TryParseMarkTimecode(text, parsed) Then
+            SetStatus($"Mark {markName} timecode must be HH:MM:SS:FF.", warning:=True)
+            Return False
+        End If
+
+        position = ClampToSelectedDuration(parsed)
+        textBox.Text = FormatDuration(position)
+        Return True
+    End Function
+
+    Private Sub NormalizeMarkField(textBox As TextBox, warnInvalid As Boolean)
+        If textBox Is Nothing Then
+            Return
+        End If
+
+        Dim normalized As TimeSpan?
+
+        If Not TryNormalizeMarkText(If(textBox Is markInTextBox, "In", "Out"), textBox, normalized, warnInvalid) Then
+            Return
+        End If
+
+        If textBox Is markInTextBox Then
+            markInPosition = normalized
+        ElseIf textBox Is markOutTextBox Then
+            markOutPosition = normalized
+        End If
+
+        UpdatePreviewButtons()
+    End Sub
+
+    Private Function TryNormalizeMarkText(markName As String, textBox As TextBox, ByRef normalized As TimeSpan?, warnInvalid As Boolean) As Boolean
+        normalized = Nothing
+        Dim text = If(textBox.Text, String.Empty).Trim()
+
+        If String.IsNullOrWhiteSpace(text) OrElse String.Equals(text, EmptyMarkText, StringComparison.Ordinal) Then
+            textBox.Text = EmptyMarkText
+            Return True
+        End If
+
+        If Not IsScrubberLoaded() OrElse Not scrubberTrackBar.Enabled Then
+            If warnInvalid Then
+                SetStatus("Load a clip in the player before entering marks.", warning:=True)
+            End If
+
+            Return False
+        End If
+
+        Dim parsed As TimeSpan
+
+        If Not TryParseMarkTimecode(text, parsed) Then
+            If warnInvalid Then
+                SetStatus($"Mark {markName} timecode must be HH:MM:SS:FF.", warning:=True)
+            End If
+
+            Return False
+        End If
+
+        Dim clamped = ClampToSelectedDuration(parsed)
+        normalized = clamped
+        textBox.Text = FormatDuration(clamped)
+        Return True
+    End Function
+
+    Private Async Function GoToMarkAsync(markName As String, position As TimeSpan) As Task
+        playbackStartOffset = ClampToSelectedDuration(position)
+        SetScrubberPosition(playbackStartOffset)
+        QueueScrubFramePreview(playbackStartOffset, updateDeckLink:=True)
+        Await WaitForScrubFrameQueueAsync()
+        SetStatus($"Goto {markName}: {FormatDuration(playbackStartOffset)}.")
+    End Function
+
+    Private Async Function PlayFromMarkAsync(markName As String, position As TimeSpan) As Task
+        Dim filePath = scrubberLoadedFilePath
+
+        If String.IsNullOrWhiteSpace(filePath) Then
+            SetStatus("Load a clip in the player before using marks.", warning:=True)
+            Return
+        End If
+
+        playbackStartOffset = ClampToPlayableStartOffset(position)
+        SetScrubberPosition(playbackStartOffset)
+
+        If Math.Abs(playbackSpeedMultiplier) < 0.001R Then
+            playbackSpeedMultiplier = 1.0R
+            UpdateSpeedControls()
+        End If
+
+        Await StartSelectedPlaybackAsync(filePathOverride:=filePath)
+        SetStatus($"Playing from Mark {markName}: {FormatDuration(playbackStartOffset)}.")
+    End Function
+
+    Private Sub ClearMarks()
+        markInPosition = Nothing
+        markOutPosition = Nothing
+        markInTextBox.Text = EmptyMarkText
+        markOutTextBox.Text = EmptyMarkText
+    End Sub
 
     Private Sub OnOutputSelectionChanged(sender As Object, e As EventArgs)
         SaveDeckLinkOutputSelection()
@@ -1701,6 +2000,70 @@ Public Class DeckLinkPlayerControl
         Return $"{hours:00}:{minutes:00}:{seconds:00}:{frames:00}"
     End Function
 
+    Private Shared Function TryParseMarkTimecode(value As String, ByRef position As TimeSpan) As Boolean
+        position = TimeSpan.Zero
+
+        If String.IsNullOrWhiteSpace(value) Then
+            Return False
+        End If
+
+        Dim text = value.Trim().Replace(";"c, ":"c)
+        Dim parts = text.Split(":"c)
+        Dim hours = 0
+        Dim minutes = 0
+        Dim seconds = 0
+        Dim frames = 0
+
+        Select Case parts.Length
+            Case 4
+                If Not TryParseNonNegativeInteger(parts(0), hours) OrElse
+                    Not TryParseNonNegativeInteger(parts(1), minutes) OrElse
+                    Not TryParseNonNegativeInteger(parts(2), seconds) OrElse
+                    Not TryParseNonNegativeInteger(parts(3), frames) OrElse
+                    minutes >= 60 OrElse seconds >= 60 OrElse frames >= DurationDisplayFrameRate Then
+                    Return False
+                End If
+
+            Case 3
+                If Not TryParseNonNegativeInteger(parts(0), hours) OrElse
+                    Not TryParseNonNegativeInteger(parts(1), minutes) OrElse
+                    Not TryParseNonNegativeInteger(parts(2), seconds) OrElse
+                    minutes >= 60 OrElse seconds >= 60 Then
+                    Return False
+                End If
+
+            Case 2
+                If Not TryParseNonNegativeInteger(parts(0), minutes) OrElse
+                    Not TryParseNonNegativeInteger(parts(1), seconds) OrElse
+                    seconds >= 60 Then
+                    Return False
+                End If
+
+            Case 1
+                Dim totalSeconds As Double
+
+                If Not Double.TryParse(parts(0), NumberStyles.Float, CultureInfo.InvariantCulture, totalSeconds) OrElse totalSeconds < 0.0R Then
+                    Return False
+                End If
+
+                position = TimeSpan.FromSeconds(totalSeconds)
+                Return True
+
+            Case Else
+                Return False
+        End Select
+
+        position = TimeSpan.FromHours(hours) +
+            TimeSpan.FromMinutes(minutes) +
+            TimeSpan.FromSeconds(seconds) +
+            TimeSpan.FromSeconds(frames / CDbl(DurationDisplayFrameRate))
+        Return True
+    End Function
+
+    Private Shared Function TryParseNonNegativeInteger(value As String, ByRef result As Integer) As Boolean
+        Return Integer.TryParse(value.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, result) AndAlso result >= 0
+    End Function
+
     Private Shared Function NormalizePlaybackSpeed(speed As Double) As Double
         If Double.IsNaN(speed) OrElse Double.IsInfinity(speed) Then
             Return 1.0R
@@ -1793,6 +2156,7 @@ Public Class DeckLinkPlayerControl
             scrubberTrackBar.Value = 0
             scrubberTrackBar.Maximum = 0
             scrubberTimeLabel.Text = If(IsImageFile(scrubberLoadedFilePath), "Still image", "--:--:--:-- / --:--:--:--")
+            UpdateMarkControls()
             Return
         End If
 
@@ -1807,6 +2171,7 @@ Public Class DeckLinkPlayerControl
 
         SetScrubberPosition(playbackStartOffset)
         UpdateGrowingDurationRefreshTimer()
+        UpdateMarkControls()
     End Sub
 
     Private Sub ClearScrubber()
@@ -1815,6 +2180,8 @@ Public Class DeckLinkPlayerControl
         scrubberTrackBar.Value = 0
         scrubberTrackBar.Maximum = 0
         scrubberTimeLabel.Text = "--:--:--:-- / --:--:--:--"
+        ClearMarks()
+        UpdateMarkControls()
     End Sub
 
     Private Sub SetScrubberPosition(position As TimeSpan)
@@ -1976,6 +2343,7 @@ Public Class DeckLinkPlayerControl
 
         If Not String.Equals(scrubberLoadedFilePath, filePath, StringComparison.OrdinalIgnoreCase) Then
             DisposeScrubPreviewCache()
+            ClearMarks()
             scrubberLoadedFilePath = filePath
             playbackStartOffset = TimeSpan.Zero
         End If
@@ -2035,6 +2403,7 @@ Public Class DeckLinkPlayerControl
 
         If Not String.Equals(scrubberLoadedFilePath, filePath, StringComparison.OrdinalIgnoreCase) Then
             DisposeScrubPreviewCache()
+            ClearMarks()
             scrubberLoadedFilePath = filePath
             playbackStartOffset = TimeSpan.Zero
         End If
@@ -2245,6 +2614,7 @@ Public Class DeckLinkPlayerControl
 
         If Not String.Equals(scrubberLoadedFilePath, filePath, StringComparison.OrdinalIgnoreCase) Then
             DisposeScrubPreviewCache()
+            ClearMarks()
             scrubberLoadedFilePath = filePath
             playbackStartOffset = TimeSpan.Zero
         End If
@@ -3366,6 +3736,20 @@ Public Class DeckLinkPlayerControl
         For Each button In speedPresetButtons
             button.Enabled = speedControlsEnabled
         Next
+
+        UpdateMarkControls()
+    End Sub
+
+    Private Sub UpdateMarkControls()
+        Dim controlsEnabled = IsScrubberLoaded() AndAlso scrubberTrackBar.Enabled AndAlso
+            Not isLoadingFiles AndAlso Not isStoppingPreview AndAlso Not isStoppingOutput AndAlso Not isSeekingPlayback
+
+        For Each button In markButtons
+            button.Enabled = controlsEnabled
+        Next
+
+        markInTextBox.Enabled = controlsEnabled
+        markOutTextBox.Enabled = controlsEnabled
     End Sub
 
     Private Function IsPlaybackActive() As Boolean
@@ -3420,6 +3804,7 @@ Public Class DeckLinkPlayerControl
         previewToolbarPanel.BackColor = background
         previewStateHostPanel.BackColor = background
         speedButtonsPanel.BackColor = background
+        markControlsPanel.BackColor = background
         previewPanel.BackColor = background
         browserSplit.BackColor = background
 
@@ -3436,6 +3821,10 @@ Public Class DeckLinkPlayerControl
         outputDeviceComboBox.ForeColor = foreground
         outputModeComboBox.BackColor = inputBackground
         outputModeComboBox.ForeColor = foreground
+        markInTextBox.BackColor = inputBackground
+        markInTextBox.ForeColor = foreground
+        markOutTextBox.BackColor = inputBackground
+        markOutTextBox.ForeColor = foreground
 
         folderTreeView.BackColor = inputBackground
         folderTreeView.ForeColor = foreground
@@ -3456,6 +3845,9 @@ Public Class DeckLinkPlayerControl
         StyleButton(previewButton, foreground)
         StyleButton(stopPreviewButton, foreground)
         For Each button In speedPresetButtons
+            StyleButton(button, foreground)
+        Next
+        For Each button In markButtons
             StyleButton(button, foreground)
         Next
         UpdateSpeedControls()
