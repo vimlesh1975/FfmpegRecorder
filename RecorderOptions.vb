@@ -8,6 +8,7 @@ Friend Class RecorderOptions
     Public Property Channels As Integer
     Public Property OutputFolder As String
     Public Property FilePrefix As String
+    Public Property FileNameSuffix As String
     Public Property ClipDurationSeconds As Integer
     Public Property ContainerExtension As String
     Public Property VideoFilter As String
@@ -19,9 +20,10 @@ Friend Class RecorderOptions
     Public Function BuildOutputPattern(Optional timestampToken As String = Nothing) As String
         Dim stamp = If(String.IsNullOrWhiteSpace(timestampToken), "%d%m%Y_%H%M%S", timestampToken)
         Dim safePrefix = If(String.IsNullOrWhiteSpace(FilePrefix), "clip", FilePrefix.Trim())
+        Dim suffixPart = BuildFileNameSuffixPart(FileNameSuffix)
         Dim safeExtension = If(String.IsNullOrWhiteSpace(ContainerExtension), ".mov", ContainerExtension.Trim())
 
-        Return IO.Path.Combine(OutputFolder, $"{safePrefix}_{stamp}{safeExtension}")
+        Return IO.Path.Combine(OutputFolder, $"{safePrefix}_{stamp}{suffixPart}{safeExtension}")
     End Function
 
     Public Function BuildUniqueOutputPath() As String
@@ -301,5 +303,31 @@ Friend Class RecorderOptions
     Private Shared Function Quote(value As String) As String
         Dim safeValue = If(value, String.Empty).Replace("""", String.Empty)
         Return $"""{safeValue}"""
+    End Function
+
+    Private Shared Function BuildFileNameSuffixPart(value As String) As String
+        Dim safeValue = SanitizeFileToken(value)
+        Return If(String.IsNullOrWhiteSpace(safeValue), String.Empty, $"_{safeValue}")
+    End Function
+
+    Private Shared Function SanitizeFileToken(value As String) As String
+        If String.IsNullOrWhiteSpace(value) Then
+            Return String.Empty
+        End If
+
+        Dim builder As New StringBuilder()
+        Dim previousWasSeparator = False
+
+        For Each character In value.Trim()
+            If Char.IsLetterOrDigit(character) Then
+                builder.Append(character)
+                previousWasSeparator = False
+            ElseIf Not previousWasSeparator Then
+                builder.Append("_"c)
+                previousWasSeparator = True
+            End If
+        Next
+
+        Return builder.ToString().Trim("_"c)
     End Function
 End Class

@@ -812,12 +812,6 @@ Partial Public Class RecorderHostForm
         Finally
             suppressSharedOperatorEvents = False
         End Try
-
-        OnSharedProfileChanged(Me, EventArgs.Empty)
-        OnSharedRecordingModeChanged(Me, EventArgs.Empty)
-        OnSharedIntervalChanged(Me, EventArgs.Empty)
-        OnSharedInputModeChanged(Me, EventArgs.Empty)
-        OnSharedPalAspectChanged(Me, EventArgs.Empty)
     End Sub
 
     Private Sub UpdateCpuLabels()

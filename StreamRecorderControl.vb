@@ -13,16 +13,18 @@ Public Class StreamRecorderControl
     Private Const RecordingModeSingleFile As String = "Infinite Record"
 
     Private NotInheritable Class StreamRecordingProfile
-        Public Sub New(displayName As String, containerExtension As String, outputOptions As String, Optional useFfmbcFinalize As Boolean = False)
+        Public Sub New(displayName As String, containerExtension As String, outputOptions As String, Optional fileNameSuffix As String = Nothing, Optional useFfmbcFinalize As Boolean = False)
             Me.DisplayName = displayName
             Me.ContainerExtension = containerExtension
             Me.OutputOptions = outputOptions
+            Me.FileNameSuffix = If(String.IsNullOrWhiteSpace(fileNameSuffix), displayName, fileNameSuffix)
             Me.UseFfmbcFinalize = useFfmbcFinalize
         End Sub
 
         Public ReadOnly Property DisplayName As String
         Public ReadOnly Property ContainerExtension As String
         Public ReadOnly Property OutputOptions As String
+        Public ReadOnly Property FileNameSuffix As String
         Public ReadOnly Property UseFfmbcFinalize As Boolean
 
         Public Overrides Function ToString() As String
@@ -230,21 +232,21 @@ Public Class StreamRecorderControl
         profileComboBox.DropDownWidth = 320
         profileComboBox.Margin = New Padding(0)
         profileComboBox.Items.AddRange(New Object() {
-            New StreamRecordingProfile("XDCAM HD422", ".mxf", "-c:v mpeg2video -pix_fmt yuv422p -b:v 50000k -minrate 50000k -maxrate 50000k -bufsize 17825792 -rc_init_occupancy 17825792 -g 12 -bf 2 -flags +ildct+ilme -top 1 -qmin 1 -qmax 12 -dc 10 -intra_vlc 1 -color_primaries bt709 -color_trc bt709 -colorspace bt709 -c:a pcm_s16le -ar 48000 -ac 2"),
-            New StreamRecordingProfile("XDCAM Sony Compatible", ".mxf", "-c:v mpeg2video -pix_fmt yuv422p -b:v 50000k -minrate 50000k -maxrate 50000k -bufsize 17825792 -rc_init_occupancy 17825792 -g 12 -bf 2 -flags +ildct+ilme -top 1 -qmin 1 -qmax 12 -dc 10 -intra_vlc 1 -color_primaries bt709 -color_trc bt709 -colorspace bt709 -c:a pcm_s24le -ar 48000", useFfmbcFinalize:=True),
-            New StreamRecordingProfile("MP4 High Quality", ".mp4", "-c:v libx264 -preset medium -crf 18 -pix_fmt yuv420p -profile:v high -movflags +faststart -c:a aac -b:a 192k -ar 48000 -ac 2"),
-            New StreamRecordingProfile("MP4 Low Bitrate", ".mp4", "-c:v libx264 -preset veryfast -crf 24 -pix_fmt yuv420p -profile:v high -movflags +faststart -c:a aac -b:a 128k -ar 48000 -ac 2"),
-            New StreamRecordingProfile("TS H.264 High Quality", ".ts", "-c:v libx264 -preset veryfast -crf 20 -pix_fmt yuv420p -profile:v high -c:a aac -b:a 192k -ar 48000 -ac 2"),
-            New StreamRecordingProfile("TS H.264 Low Bitrate", ".ts", "-c:v libx264 -preset veryfast -crf 25 -pix_fmt yuv420p -profile:v high -c:a aac -b:a 128k -ar 48000 -ac 2"),
-            New StreamRecordingProfile("TS MPEG-2 4:2:2 50M", ".ts", "-c:v mpeg2video -pix_fmt yuv422p -b:v 50000k -minrate 50000k -maxrate 50000k -bufsize 17825792 -g 12 -bf 2 -flags +ildct+ilme -top 1 -qmin 1 -qmax 12 -dc 10 -intra_vlc 1 -color_primaries bt709 -color_trc bt709 -colorspace bt709 -c:a mp2 -b:a 384k -ar 48000 -ac 2"),
-            New StreamRecordingProfile("ProRes Proxy (Small)", ".mov", "-c:v prores_ks -profile:v 0 -pix_fmt yuv422p10le -vendor apl0 -bits_per_mb 400 -c:a pcm_s16le -ar 48000"),
-            New StreamRecordingProfile("ProRes LT (Light)", ".mov", "-c:v prores_ks -profile:v 1 -pix_fmt yuv422p10le -vendor apl0 -bits_per_mb 1000 -c:a pcm_s16le -ar 48000"),
-            New StreamRecordingProfile("ProRes 422 (Medium)", ".mov", "-c:v prores_ks -profile:v 2 -pix_fmt yuv422p10le -vendor apl0 -bits_per_mb 1600 -c:a pcm_s16le -ar 48000"),
-            New StreamRecordingProfile("ProRes 422 HQ (High)", ".mov", "-c:v prores_ks -profile:v 3 -pix_fmt yuv422p10le -vendor apl0 -bits_per_mb 2400 -c:a pcm_s16le -ar 48000"),
-            New StreamRecordingProfile("DNxHD 36 (Proxy)", ".mxf", "-c:v dnxhd -b:v 36M -pix_fmt yuv422p -c:a pcm_s16le -ar 48000"),
-            New StreamRecordingProfile("DNxHD 120 (Standard)", ".mxf", "-c:v dnxhd -b:v 120M -pix_fmt yuv422p -c:a pcm_s16le -ar 48000"),
-            New StreamRecordingProfile("DNxHD 185 (High)", ".mxf", "-c:v dnxhd -b:v 185M -pix_fmt yuv422p -c:a pcm_s16le -ar 48000"),
-            New StreamRecordingProfile("DNxHD 185x (10-bit)", ".mxf", "-c:v dnxhd -b:v 185M -pix_fmt yuv422p10le -c:a pcm_s16le -ar 48000")
+            New StreamRecordingProfile("XDCAM HD422", ".mxf", "-c:v mpeg2video -pix_fmt yuv422p -b:v 50000k -minrate 50000k -maxrate 50000k -bufsize 17825792 -rc_init_occupancy 17825792 -g 12 -bf 2 -flags +ildct+ilme -top 1 -qmin 1 -qmax 12 -dc 10 -intra_vlc 1 -color_primaries bt709 -color_trc bt709 -colorspace bt709 -c:a pcm_s16le -ar 48000 -ac 2", "XDCAM_HD422"),
+            New StreamRecordingProfile("XDCAM Sony Compatible", ".mxf", "-c:v mpeg2video -pix_fmt yuv422p -b:v 50000k -minrate 50000k -maxrate 50000k -bufsize 17825792 -rc_init_occupancy 17825792 -g 12 -bf 2 -flags +ildct+ilme -top 1 -qmin 1 -qmax 12 -dc 10 -intra_vlc 1 -color_primaries bt709 -color_trc bt709 -colorspace bt709 -c:a pcm_s24le -ar 48000", "XDCAM_Sony", useFfmbcFinalize:=True),
+            New StreamRecordingProfile("MP4 High Quality", ".mp4", "-c:v libx264 -preset medium -crf 18 -pix_fmt yuv420p -profile:v high -movflags +faststart -c:a aac -b:a 192k -ar 48000 -ac 2", "MP4_High"),
+            New StreamRecordingProfile("MP4 Low Bitrate", ".mp4", "-c:v libx264 -preset veryfast -crf 24 -pix_fmt yuv420p -profile:v high -movflags +faststart -c:a aac -b:a 128k -ar 48000 -ac 2", "MP4_Low"),
+            New StreamRecordingProfile("TS H.264 High Quality", ".ts", "-c:v libx264 -preset veryfast -crf 20 -pix_fmt yuv420p -profile:v high -c:a aac -b:a 192k -ar 48000 -ac 2", "TS_H264_High"),
+            New StreamRecordingProfile("TS H.264 Low Bitrate", ".ts", "-c:v libx264 -preset veryfast -crf 25 -pix_fmt yuv420p -profile:v high -c:a aac -b:a 128k -ar 48000 -ac 2", "TS_H264_Low"),
+            New StreamRecordingProfile("TS MPEG-2 4:2:2 50M", ".ts", "-c:v mpeg2video -pix_fmt yuv422p -b:v 50000k -minrate 50000k -maxrate 50000k -bufsize 17825792 -g 12 -bf 2 -flags +ildct+ilme -top 1 -qmin 1 -qmax 12 -dc 10 -intra_vlc 1 -color_primaries bt709 -color_trc bt709 -colorspace bt709 -c:a mp2 -b:a 384k -ar 48000 -ac 2", "TS_MPEG2_50M"),
+            New StreamRecordingProfile("ProRes Proxy (Small)", ".mov", "-c:v prores_ks -profile:v 0 -pix_fmt yuv422p10le -vendor apl0 -bits_per_mb 400 -c:a pcm_s16le -ar 48000", "ProRes_Proxy"),
+            New StreamRecordingProfile("ProRes LT (Light)", ".mov", "-c:v prores_ks -profile:v 1 -pix_fmt yuv422p10le -vendor apl0 -bits_per_mb 1000 -c:a pcm_s16le -ar 48000", "ProRes_LT"),
+            New StreamRecordingProfile("ProRes 422 (Medium)", ".mov", "-c:v prores_ks -profile:v 2 -pix_fmt yuv422p10le -vendor apl0 -bits_per_mb 1600 -c:a pcm_s16le -ar 48000", "ProRes_422"),
+            New StreamRecordingProfile("ProRes 422 HQ (High)", ".mov", "-c:v prores_ks -profile:v 3 -pix_fmt yuv422p10le -vendor apl0 -bits_per_mb 2400 -c:a pcm_s16le -ar 48000", "ProRes_422_HQ"),
+            New StreamRecordingProfile("DNxHD 36 (Proxy)", ".mxf", "-c:v dnxhd -b:v 36M -pix_fmt yuv422p -c:a pcm_s16le -ar 48000", "DNxHD_36"),
+            New StreamRecordingProfile("DNxHD 120 (Standard)", ".mxf", "-c:v dnxhd -b:v 120M -pix_fmt yuv422p -c:a pcm_s16le -ar 48000", "DNxHD_120"),
+            New StreamRecordingProfile("DNxHD 185 (High)", ".mxf", "-c:v dnxhd -b:v 185M -pix_fmt yuv422p -c:a pcm_s16le -ar 48000", "DNxHD_185"),
+            New StreamRecordingProfile("DNxHD 185x (10-bit)", ".mxf", "-c:v dnxhd -b:v 185M -pix_fmt yuv422p10le -c:a pcm_s16le -ar 48000", "DNxHD_185x")
         })
         profileComboBox.SelectedIndex = 1
 
@@ -1012,16 +1014,17 @@ Public Class StreamRecorderControl
     End Function
 
     Private Function CreateStreamOutputPattern(outputFolder As String, selectedProfile As StreamRecordingProfile) As String
-        Return Path.Combine(outputFolder, $"Stream_%d%m%Y_%H%M%S{selectedProfile.ContainerExtension}")
+        Return Path.Combine(outputFolder, $"Stream_%d%m%Y_%H%M%S{BuildFileNameSuffixPart(selectedProfile.FileNameSuffix)}{selectedProfile.ContainerExtension}")
     End Function
 
     Private Function CreateUniqueStreamOutputPath(outputFolder As String, selectedProfile As StreamRecordingProfile) As String
         Dim timestamp = DateTime.Now.ToString("ddMMyyyy_HHmmss")
-        Dim candidatePath = Path.Combine(outputFolder, $"Stream_{timestamp}{selectedProfile.ContainerExtension}")
+        Dim suffixPart = BuildFileNameSuffixPart(selectedProfile.FileNameSuffix)
+        Dim candidatePath = Path.Combine(outputFolder, $"Stream_{timestamp}{suffixPart}{selectedProfile.ContainerExtension}")
         Dim suffix = 1
 
         While File.Exists(candidatePath)
-            candidatePath = Path.Combine(outputFolder, $"Stream_{timestamp}_{suffix:00}{selectedProfile.ContainerExtension}")
+            candidatePath = Path.Combine(outputFolder, $"Stream_{timestamp}{suffixPart}_{suffix:00}{selectedProfile.ContainerExtension}")
             suffix += 1
         End While
 
@@ -1620,6 +1623,32 @@ Public Class StreamRecorderControl
         End If
 
         Return format
+    End Function
+
+    Private Shared Function BuildFileNameSuffixPart(value As String) As String
+        Dim safeValue = SanitizeFileToken(value)
+        Return If(String.IsNullOrWhiteSpace(safeValue), String.Empty, $"_{safeValue}")
+    End Function
+
+    Private Shared Function SanitizeFileToken(value As String) As String
+        If String.IsNullOrWhiteSpace(value) Then
+            Return String.Empty
+        End If
+
+        Dim builder As New StringBuilder()
+        Dim previousWasSeparator = False
+
+        For Each character In value.Trim()
+            If Char.IsLetterOrDigit(character) Then
+                builder.Append(character)
+                previousWasSeparator = False
+            ElseIf Not previousWasSeparator Then
+                builder.Append("_"c)
+                previousWasSeparator = True
+            End If
+        Next
+
+        Return builder.ToString().Trim("_"c)
     End Function
 
     Private Function ResolveInputUrls(sourceValue As String) As IReadOnlyList(Of String)

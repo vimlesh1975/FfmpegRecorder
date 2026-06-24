@@ -32,12 +32,13 @@ Partial Public Class RecorderControl
     End Class
 
     Private NotInheritable Class RecordingProfileDefinition
-        Public Sub New(displayName As String, containerExtension As String, outputOptions As String, Optional videoFilter As String = Nothing, Optional useFfmbcFinalize As Boolean = False)
+        Public Sub New(displayName As String, containerExtension As String, outputOptions As String, Optional videoFilter As String = Nothing, Optional useFfmbcFinalize As Boolean = False, Optional fileNameSuffix As String = Nothing)
             Me.DisplayName = displayName
             Me.ContainerExtension = containerExtension
             Me.OutputOptions = outputOptions
             Me.VideoFilter = videoFilter
             Me.UseFfmbcFinalize = useFfmbcFinalize
+            Me.FileNameSuffix = If(String.IsNullOrWhiteSpace(fileNameSuffix), displayName, fileNameSuffix)
         End Sub
 
         Public ReadOnly Property DisplayName As String
@@ -45,6 +46,7 @@ Partial Public Class RecorderControl
         Public ReadOnly Property OutputOptions As String
         Public ReadOnly Property VideoFilter As String
         Public ReadOnly Property UseFfmbcFinalize As Boolean
+        Public ReadOnly Property FileNameSuffix As String
 
         Public ReadOnly Property SummaryText As String
             Get
@@ -88,82 +90,97 @@ Partial Public Class RecorderControl
     Private ReadOnly xdcamHd422Profile As New RecordingProfileDefinition(
         "XDCAM HD422",
         ".mxf",
-        "-c:v mpeg2video -pix_fmt yuv422p -b:v 50000k -minrate 50000k -maxrate 50000k -bufsize 17825792 -rc_init_occupancy 17825792 -g 12 -bf 2 -flags +ildct+ilme -top 1 -qmin 1 -qmax 12 -dc 10 -intra_vlc 1 -color_primaries bt709 -color_trc bt709 -colorspace bt709 -c:a pcm_s16le -ar 48000 -ac 2"
+        "-c:v mpeg2video -pix_fmt yuv422p -b:v 50000k -minrate 50000k -maxrate 50000k -bufsize 17825792 -rc_init_occupancy 17825792 -g 12 -bf 2 -flags +ildct+ilme -top 1 -qmin 1 -qmax 12 -dc 10 -intra_vlc 1 -color_primaries bt709 -color_trc bt709 -colorspace bt709 -c:a pcm_s16le -ar 48000 -ac 2",
+        fileNameSuffix:="XDCAM_HD422"
     )
     Private ReadOnly xdcamSonyCompatibleProfile As New RecordingProfileDefinition(
         "XDCAM Sony Compatible",
         ".mxf",
         "-c:v mpeg2video -pix_fmt yuv422p -b:v 50000k -minrate 50000k -maxrate 50000k -bufsize 17825792 -rc_init_occupancy 17825792 -g 12 -bf 2 -flags +ildct+ilme -top 1 -qmin 1 -qmax 12 -dc 10 -intra_vlc 1 -color_primaries bt709 -color_trc bt709 -colorspace bt709 -c:a pcm_s24le -ar 48000",
-        useFfmbcFinalize:=True
+        useFfmbcFinalize:=True,
+        fileNameSuffix:="XDCAM_Sony"
     )
     Private ReadOnly mp4HighResProfile As New RecordingProfileDefinition(
         "MP4 High Quality",
         ".mp4",
         "-c:v libx264 -preset medium -crf 18 -pix_fmt yuv420p -profile:v high -movflags +faststart -c:a aac -b:a 192k -ar 48000 -ac 2",
-        "bwdif=mode=send_frame:parity=auto:deint=all,scale=1920:1080:flags=lanczos,fps=25"
+        "bwdif=mode=send_frame:parity=auto:deint=all,scale=1920:1080:flags=lanczos,fps=25",
+        fileNameSuffix:="MP4_High"
     )
     Private ReadOnly mp4LowResProfile As New RecordingProfileDefinition(
         "MP4 Low Bitrate",
         ".mp4",
         "-c:v libx264 -preset veryfast -crf 24 -pix_fmt yuv420p -profile:v high -movflags +faststart -c:a aac -b:a 128k -ar 48000 -ac 2",
-        "bwdif=mode=send_frame:parity=auto:deint=all,scale=1920:1080:flags=lanczos,fps=25"
+        "bwdif=mode=send_frame:parity=auto:deint=all,scale=1920:1080:flags=lanczos,fps=25",
+        fileNameSuffix:="MP4_Low"
     )
     Private ReadOnly tsH264HighProfile As New RecordingProfileDefinition(
         "TS H.264 High Quality",
         ".ts",
         "-c:v libx264 -preset veryfast -crf 20 -pix_fmt yuv420p -profile:v high -c:a aac -b:a 192k -ar 48000 -ac 2",
-        "bwdif=mode=send_frame:parity=auto:deint=all,scale=1920:1080:flags=lanczos,fps=25"
+        "bwdif=mode=send_frame:parity=auto:deint=all,scale=1920:1080:flags=lanczos,fps=25",
+        fileNameSuffix:="TS_H264_High"
     )
     Private ReadOnly tsH264LowProfile As New RecordingProfileDefinition(
         "TS H.264 Low Bitrate",
         ".ts",
         "-c:v libx264 -preset veryfast -crf 25 -pix_fmt yuv420p -profile:v high -c:a aac -b:a 128k -ar 48000 -ac 2",
-        "bwdif=mode=send_frame:parity=auto:deint=all,scale=1920:1080:flags=lanczos,fps=25"
+        "bwdif=mode=send_frame:parity=auto:deint=all,scale=1920:1080:flags=lanczos,fps=25",
+        fileNameSuffix:="TS_H264_Low"
     )
     Private ReadOnly tsMpeg2Profile As New RecordingProfileDefinition(
         "TS MPEG-2 4:2:2 50M",
         ".ts",
-        "-c:v mpeg2video -pix_fmt yuv422p -b:v 50000k -minrate 50000k -maxrate 50000k -bufsize 17825792 -g 12 -bf 2 -flags +ildct+ilme -top 1 -qmin 1 -qmax 12 -dc 10 -intra_vlc 1 -color_primaries bt709 -color_trc bt709 -colorspace bt709 -c:a mp2 -b:a 384k -ar 48000 -ac 2"
+        "-c:v mpeg2video -pix_fmt yuv422p -b:v 50000k -minrate 50000k -maxrate 50000k -bufsize 17825792 -g 12 -bf 2 -flags +ildct+ilme -top 1 -qmin 1 -qmax 12 -dc 10 -intra_vlc 1 -color_primaries bt709 -color_trc bt709 -colorspace bt709 -c:a mp2 -b:a 384k -ar 48000 -ac 2",
+        fileNameSuffix:="TS_MPEG2_50M"
     )
     Private ReadOnly proResProxyProfile As New RecordingProfileDefinition(
         "ProRes Proxy (Small)",
         ".mov",
-        "-c:v prores_ks -profile:v 0 -pix_fmt yuv422p10le -vendor apl0 -bits_per_mb 400 -c:a pcm_s16le -ar 48000"
+        "-c:v prores_ks -profile:v 0 -pix_fmt yuv422p10le -vendor apl0 -bits_per_mb 400 -c:a pcm_s16le -ar 48000",
+        fileNameSuffix:="ProRes_Proxy"
     )
     Private ReadOnly proResLtProfile As New RecordingProfileDefinition(
         "ProRes LT (Light)",
         ".mov",
-        "-c:v prores_ks -profile:v 1 -pix_fmt yuv422p10le -vendor apl0 -bits_per_mb 1000 -c:a pcm_s16le -ar 48000"
+        "-c:v prores_ks -profile:v 1 -pix_fmt yuv422p10le -vendor apl0 -bits_per_mb 1000 -c:a pcm_s16le -ar 48000",
+        fileNameSuffix:="ProRes_LT"
     )
     Private ReadOnly proRes422Profile As New RecordingProfileDefinition(
         "ProRes 422 (Medium)",
         ".mov",
-        "-c:v prores_ks -profile:v 2 -pix_fmt yuv422p10le -vendor apl0 -bits_per_mb 1600 -c:a pcm_s16le -ar 48000"
+        "-c:v prores_ks -profile:v 2 -pix_fmt yuv422p10le -vendor apl0 -bits_per_mb 1600 -c:a pcm_s16le -ar 48000",
+        fileNameSuffix:="ProRes_422"
     )
     Private ReadOnly proRes422HqProfile As New RecordingProfileDefinition(
         "ProRes 422 HQ (High)",
         ".mov",
-        "-c:v prores_ks -profile:v 3 -pix_fmt yuv422p10le -vendor apl0 -bits_per_mb 2400 -c:a pcm_s16le -ar 48000"
+        "-c:v prores_ks -profile:v 3 -pix_fmt yuv422p10le -vendor apl0 -bits_per_mb 2400 -c:a pcm_s16le -ar 48000",
+        fileNameSuffix:="ProRes_422_HQ"
     )
     Private ReadOnly dnxhd36Profile As New RecordingProfileDefinition(
         "DNxHD 36 (Proxy)",
         ".mxf",
-        "-c:v dnxhd -b:v 36M -pix_fmt yuv422p -c:a pcm_s16le -ar 48000"
+        "-c:v dnxhd -b:v 36M -pix_fmt yuv422p -c:a pcm_s16le -ar 48000",
+        fileNameSuffix:="DNxHD_36"
     )
     Private ReadOnly dnxhd120Profile As New RecordingProfileDefinition(
         "DNxHD 120 (Standard)",
         ".mxf",
-        "-c:v dnxhd -b:v 120M -pix_fmt yuv422p -c:a pcm_s16le -ar 48000"
+        "-c:v dnxhd -b:v 120M -pix_fmt yuv422p -c:a pcm_s16le -ar 48000",
+        fileNameSuffix:="DNxHD_120"
     )
     Private ReadOnly dnxhd185Profile As New RecordingProfileDefinition(
         "DNxHD 185 (High)",
         ".mxf",
-        "-c:v dnxhd -b:v 185M -pix_fmt yuv422p -c:a pcm_s16le -ar 48000"
+        "-c:v dnxhd -b:v 185M -pix_fmt yuv422p -c:a pcm_s16le -ar 48000",
+        fileNameSuffix:="DNxHD_185"
     )
     Private ReadOnly dnxhd185xProfile As New RecordingProfileDefinition(
         "DNxHD 185x (10-bit)",
         ".mxf",
-        "-c:v dnxhd -b:v 185M -pix_fmt yuv422p10le -c:a pcm_s16le -ar 48000"
+        "-c:v dnxhd -b:v 185M -pix_fmt yuv422p10le -c:a pcm_s16le -ar 48000",
+        fileNameSuffix:="DNxHD_185x"
     )
 
     Private ReadOnly previewPictureBox As New PictureBox()
@@ -915,6 +932,7 @@ Partial Public Class RecorderControl
             .Channels = 2,
             .OutputFolder = OutputFolderPath,
             .FilePrefix = GetRecordingPrefix(),
+            .FileNameSuffix = selectedProfile.FileNameSuffix,
             .ClipDurationSeconds = GetSelectedClipDurationSeconds(),
             .ContainerExtension = selectedProfile.ContainerExtension,
             .VideoFilter = BuildSelectedRecordingVideoFilter(selectedProfile),
@@ -1772,6 +1790,7 @@ Partial Public Class RecorderControl
             .Channels = sourceOptions.Channels,
             .OutputFolder = outputFolder,
             .FilePrefix = sourceOptions.FilePrefix,
+            .FileNameSuffix = sourceOptions.FileNameSuffix,
             .ClipDurationSeconds = sourceOptions.ClipDurationSeconds,
             .ContainerExtension = sourceOptions.ContainerExtension,
             .VideoFilter = sourceOptions.VideoFilter,
