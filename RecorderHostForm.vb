@@ -57,9 +57,6 @@ Partial Public Class RecorderHostForm
         InitializeComponent()
         isDarkModeEnabled = GetSavedDarkModeSelection()
         darkModeCheckBox.Checked = isDarkModeEnabled
-        OrganizeCommonPanel()
-        Text = GetExecutableWindowTitle()
-        ApplyVisualTheme()
 
         AddHandler leftRecorderControl.CpuUsageChanged, AddressOf OnRecorderCpuUsageChanged
         AddHandler rightRecorderControl.CpuUsageChanged, AddressOf OnRecorderCpuUsageChanged
@@ -84,7 +81,6 @@ Partial Public Class RecorderHostForm
         AddHandler Load, AddressOf RecorderHostForm_Load
         AddHandler SizeChanged, AddressOf RecorderHostForm_SizeChanged
         AddHandler FormClosing, AddressOf RecorderHostForm_FormClosing
-
         profileComboBox.Items.Clear()
         profileComboBox.Items.AddRange(leftRecorderControl.AvailableProfileNames.ToArray())
         recordingModeComboBox.Items.Clear()
@@ -98,6 +94,11 @@ Partial Public Class RecorderHostForm
         audioListenComboBox.SelectedItem = GetSavedAudioListenSelection()
         InitializeSharedDeckLinkControls()
         InitializeRecordingDirectoryControls()
+
+        OrganizeCommonPanel()
+        Text = GetExecutableWindowTitle()
+        ApplyVisualTheme()
+
         RefreshRecordingDirectoryDisplay()
 
         ReadSystemCpuSample(lastSystemCpuSample)
