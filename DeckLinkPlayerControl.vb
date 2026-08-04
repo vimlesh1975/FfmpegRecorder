@@ -271,6 +271,14 @@ Public Class DeckLinkPlayerControl
         Directory.CreateDirectory(recordingDirectory)
 
         If String.Equals(rootDirectoryPath, recordingDirectory, StringComparison.OrdinalIgnoreCase) AndAlso folderTreeView.Nodes.Count > 0 Then
+            Dim selectedNode = folderTreeView.SelectedNode
+            If selectedNode IsNot Nothing Then
+                LoadDirectoryChildren(selectedNode)
+                selectedNode.Expand()
+            Else
+                LoadDirectoryChildren(folderTreeView.Nodes(0))
+                folderTreeView.Nodes(0).Expand()
+            End If
             RefreshSelectedFolderFiles()
             Return
         End If
