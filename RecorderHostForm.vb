@@ -47,8 +47,16 @@ Partial Public Class RecorderHostForm
         End Get
     End Property
 
+    Private Shared ReadOnly Property DarkModeSettingsFilePath As String
+        Get
+            Return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "FfmpegRecorder", "dark-mode.txt")
+        End Get
+    End Property
+
     Public Sub New()
         InitializeComponent()
+        isDarkModeEnabled = GetSavedDarkModeSelection()
+        darkModeCheckBox.Checked = isDarkModeEnabled
         OrganizeCommonPanel()
         Text = GetExecutableWindowTitle()
         ApplyVisualTheme()
@@ -674,6 +682,7 @@ Partial Public Class RecorderHostForm
 
     Private Sub OnDarkModeChanged(sender As Object, e As EventArgs)
         isDarkModeEnabled = darkModeCheckBox.Checked
+        SaveDarkModeSelection(isDarkModeEnabled)
         ApplyVisualTheme()
     End Sub
 
@@ -776,6 +785,28 @@ Partial Public Class RecorderHostForm
 
         Return defaultSelection
     End Function
+
+    Private Function GetSavedDarkModeSelection() As Boolean
+        Try
+            If File.Exists(DarkModeSettingsFilePath) Then
+                Dim savedSelection = File.ReadAllText(DarkModeSettingsFilePath).Trim()
+                Dim isEnabled As Boolean
+                If Boolean.TryParse(savedSelection, isEnabled) Then
+                    Return isEnabled
+                End If
+            End If
+        Catch
+        End Try
+        Return True
+    End Function
+
+    Private Sub SaveDarkModeSelection(enabled As Boolean)
+        Try
+            Directory.CreateDirectory(Path.GetDirectoryName(DarkModeSettingsFilePath))
+            File.WriteAllText(DarkModeSettingsFilePath, enabled.ToString())
+        Catch
+        End Try
+    End Sub
 
     Private Sub SaveAudioListenSelection(selectionName As String)
         If String.IsNullOrWhiteSpace(selectionName) Then
