@@ -71,6 +71,7 @@ Public Class StreamRecorderControl
     Private ReadOnly logTextBox As New TextBox()
     Private ReadOnly elapsedTimer As New Timer() With {.Interval = 1000}
     Private ReadOnly ffmbcFinalizeTimer As New Timer() With {.Interval = 1000}
+    Private ReadOnly reconnectTimer As New Timer() With {.Interval = 3000}
 
     Private WithEvents streamRunner As FfmpegProcessRunner
     Private WithEvents previewRunner As PreviewFrameReader
@@ -83,6 +84,7 @@ Public Class StreamRecorderControl
     Private isStoppingRecordingValue As Boolean
     Private isStartingPreviewValue As Boolean
     Private isStoppingPreviewValue As Boolean
+    Private isUserRecordingActive As Boolean
     Private currentRecordingUsesDirectFfmbcValue As Boolean
     Private currentRecordingUsesFfmbcFallbackValue As Boolean
     Private continueDirectFfmbcRecordingValue As Boolean
@@ -110,6 +112,7 @@ Public Class StreamRecorderControl
         AddHandler stopPreviewButton.Click, AddressOf StopPreview
         AddHandler elapsedTimer.Tick, AddressOf OnElapsedTimerTick
         AddHandler ffmbcFinalizeTimer.Tick, AddressOf OnFfmbcFinalizeTimerTick
+        AddHandler reconnectTimer.Tick, AddressOf OnReconnectTimerTick
         AddHandler urlTextBox.TextChanged, AddressOf OnSettingsChanged
         AddHandler profileComboBox.SelectedIndexChanged, AddressOf OnSettingsChanged
         AddHandler recordingModeComboBox.SelectedIndexChanged, AddressOf OnRecordingModeChanged
@@ -135,6 +138,69 @@ Public Class StreamRecorderControl
         Get
             Return streamRunner IsNot Nothing
         End Get
+    End Property
+
+    <Browsable(False), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)>
+    Public ReadOnly Property AvailableRecordingModeNames As IReadOnlyList(Of String)
+        Get
+            Return recordingModeComboBox.Items.Cast(Of Object)().
+                Select(Function(item) item.ToString()).
+                ToArray()
+        End Get
+    End Property
+
+    <Browsable(False), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)>
+    Public Property SelectedRecordingModeName As String
+        Get
+            Return GetSelectedRecordingModeName()
+        End Get
+        Set(value As String)
+            If String.IsNullOrWhiteSpace(value) Then
+                Return
+            End If
+
+            Dim normalizedValue = NormalizeRecordingModeName(value)
+            Dim matchingItem = recordingModeComboBox.Items.
+                Cast(Of Object)().
+                Select(Function(item) item.ToString()).
+                FirstOrDefault(Function(item) String.Equals(item, normalizedValue, StringComparison.OrdinalIgnoreCase))
+
+            If String.IsNullOrWhiteSpace(matchingItem) Then
+                Return
+            End If
+
+            recordingModeComboBox.SelectedItem = matchingItem
+        End Set
+    End Property
+
+    <Browsable(False), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)>
+    Public Property ClipIntervalSeconds As Integer
+        Get
+            Return Decimal.ToInt32(intervalUpDown.Value)
+        End Get
+        Set(value As Integer)
+            intervalUpDown.Value = Math.Max(CInt(intervalUpDown.Minimum), Math.Min(CInt(intervalUpDown.Maximum), value))
+        End Set
+    End Property
+
+    <Browsable(False), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)>
+    Public ReadOnly Property AvailableProfileNames As IReadOnlyList(Of String)
+        Get
+            Return profileComboBox.Items.Cast(Of Object)().
+                Select(Function(item) item.ToString()).
+                ToArray()
+        End Get
+    End Property
+
+    <Browsable(False), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)>
+    Public Property SelectedProfileName As String
+        Get
+            Dim profile = TryCast(profileComboBox.SelectedItem, StreamRecordingProfile)
+            Return If(profile IsNot Nothing, profile.DisplayName, String.Empty)
+        End Get
+        Set(value As String)
+            SelectProfileByName(value)
+        End Set
     End Property
 
     Private ReadOnly Property OutputFolderPath As String
@@ -418,6 +484,8 @@ Public Class StreamRecorderControl
             Return
         End If
 
+        reconnectTimer.Stop()
+        isUserRecordingActive = True
         isStartingRecordingValue = True
         statusValueLabel.Text = "Starting"
         statusValueLabel.ForeColor = Color.DarkOrange
@@ -571,8 +639,18 @@ Public Class StreamRecorderControl
             TearDownRunner()
             recordingStartedAtUtc = Nothing
             elapsedTimer.Stop()
-            statusValueLabel.Text = "Idle"
-            statusValueLabel.ForeColor = Color.DarkGreen
+
+            If isUserRecordingActive AndAlso Not IsIntervalRecordingModeSelected() AndAlso Not IsClearlyFiniteInput(sourceValue) AndAlso Not isStoppingRecordingValue AndAlso Not IsDisposed Then
+                statusValueLabel.Text = "Reconnecting"
+                statusValueLabel.ForeColor = Color.DarkOrange
+                AppendLog("Retrying stream connection in 5 seconds...")
+                reconnectTimer.Interval = 5000
+                reconnectTimer.Start()
+            Else
+                isUserRecordingActive = False
+                statusValueLabel.Text = "Idle"
+                statusValueLabel.ForeColor = Color.DarkGreen
+            End If
         Finally
             isStartingRecordingValue = False
 
@@ -841,18 +919,70 @@ Public Class StreamRecorderControl
         Return builder.ToString()
     End Function
 
+    Private Shared Function IsNetworkStreamUrl(inputUrl As String) As Boolean
+        If String.IsNullOrWhiteSpace(inputUrl) Then
+            Return False
+        End If
+
+        Dim parsedUri As Uri = Nothing
+        If Uri.TryCreate(inputUrl, UriKind.Absolute, parsedUri) Then
+            If parsedUri.IsFile Then
+                Return False
+            End If
+
+            Dim scheme = parsedUri.Scheme.ToLowerInvariant()
+            Return scheme = "http" OrElse scheme = "https" OrElse scheme = "rtsp" OrElse scheme = "rtmp" OrElse scheme = "rtp" OrElse scheme = "udp" OrElse scheme = "srt" OrElse scheme = "tcp"
+        End If
+
+        Return inputUrl.StartsWith("rtsp://", StringComparison.OrdinalIgnoreCase) OrElse
+            inputUrl.StartsWith("rtmp://", StringComparison.OrdinalIgnoreCase) OrElse
+            inputUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) OrElse
+            inputUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase) OrElse
+            inputUrl.StartsWith("udp://", StringComparison.OrdinalIgnoreCase) OrElse
+            inputUrl.StartsWith("srt://", StringComparison.OrdinalIgnoreCase)
+    End Function
+
+    Private Const DefaultBrowserUserAgent As String = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+
     Private Sub AppendPreviewInputArgument(builder As StringBuilder, inputUrl As String)
         If builder Is Nothing Then
             Return
         End If
 
-        builder.Append("-re ")
+        If IsNetworkStreamUrl(inputUrl) Then
+            If inputUrl.StartsWith("rtsp://", StringComparison.OrdinalIgnoreCase) Then
+                builder.Append("-rtsp_transport tcp ")
+            ElseIf inputUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) OrElse inputUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase) Then
+                builder.Append("-user_agent ").Append(Quote(DefaultBrowserUserAgent)).Append(" ")
+                If inputUrl.Contains(".m3u8", StringComparison.OrdinalIgnoreCase) Then
+                    builder.Append("-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 ")
+                Else
+                    builder.Append("-reconnect 1 -reconnect_at_eof 1 -reconnect_streamed 1 -reconnect_delay_max 5 ")
+                End If
+            End If
+        Else
+            builder.Append("-re ")
+        End If
+
         builder.Append("-i ").Append(Quote(inputUrl)).Append(" ")
     End Sub
 
     Private Sub AppendInputArgument(builder As StringBuilder, inputUrl As String)
         If builder Is Nothing Then
             Return
+        End If
+
+        If IsNetworkStreamUrl(inputUrl) Then
+            If inputUrl.StartsWith("rtsp://", StringComparison.OrdinalIgnoreCase) Then
+                builder.Append("-rtsp_transport tcp ")
+            ElseIf inputUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) OrElse inputUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase) Then
+                builder.Append("-user_agent ").Append(Quote(DefaultBrowserUserAgent)).Append(" ")
+                If inputUrl.Contains(".m3u8", StringComparison.OrdinalIgnoreCase) Then
+                    builder.Append("-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 ")
+                Else
+                    builder.Append("-reconnect 1 -reconnect_at_eof 1 -reconnect_streamed 1 -reconnect_delay_max 5 ")
+                End If
+            End If
         End If
 
         builder.Append("-i ").Append(Quote(inputUrl)).Append(" ")
@@ -1666,7 +1796,7 @@ Public Class StreamRecorderControl
 
         Dim startInfo As New ProcessStartInfo() With {
             .FileName = ytDlpPath,
-            .Arguments = $"-g --no-playlist -f ""bv*+ba/b"" {Quote(sourceValue)}",
+            .Arguments = $"-g --no-playlist --no-warnings -f ""bv*+ba/b"" {Quote(sourceValue)}",
             .WorkingDirectory = AppContext.BaseDirectory,
             .UseShellExecute = False,
             .RedirectStandardOutput = True,
@@ -1769,7 +1899,16 @@ Public Class StreamRecorderControl
     End Function
 
     Private Async Sub StopRecording(sender As Object, e As EventArgs)
+        reconnectTimer.Stop()
+        isUserRecordingActive = False
+
         If streamRunner Is Nothing OrElse isStoppingRecordingValue Then
+            If Not isStartingRecordingValue Then
+                statusValueLabel.Text = "Idle"
+                statusValueLabel.ForeColor = Color.DarkGreen
+                UpdateUiState(False)
+                UpdateStatusAccent()
+            End If
             Return
         End If
 
@@ -1792,6 +1931,17 @@ Public Class StreamRecorderControl
             UpdateUiState(streamRunner IsNot Nothing)
             UpdateStatusAccent()
         End Try
+    End Sub
+
+    Private Sub OnReconnectTimerTick(sender As Object, e As EventArgs)
+        reconnectTimer.Stop()
+
+        If Not isUserRecordingActive OrElse streamRunner IsNot Nothing OrElse isStartingRecordingValue OrElse isStoppingRecordingValue OrElse IsDisposed Then
+            Return
+        End If
+
+        AppendLog("Reconnecting to stream...")
+        StartRecording(Nothing, EventArgs.Empty)
     End Sub
 
     Private Async Sub StartPreview(sender As Object, e As EventArgs)
@@ -1955,6 +2105,10 @@ Public Class StreamRecorderControl
     End Sub
 
     Private Sub AppendLog(message As String)
+        If String.IsNullOrWhiteSpace(message) Then
+            Return
+        End If
+
         If InvokeRequired Then
             BeginInvoke(New Action(Of String)(AddressOf AppendLog), message)
             Return
@@ -2016,6 +2170,12 @@ Public Class StreamRecorderControl
         elapsedTimer.Stop()
         UpdateElapsedDisplay()
 
+        Dim shouldAutoReconnect = isUserRecordingActive AndAlso
+            Not isStoppingRecordingValue AndAlso
+            Not IsIntervalRecordingModeSelected() AndAlso
+            Not IsClearlyFiniteInput(urlTextBox.Text.Trim()) AndAlso
+            Not IsDisposed
+
         If shouldFinalizeWithFfmbc Then
             AddPendingFfmbcFinalizeSession(tempOutputFolder, finalOutputFolder)
             If exitCode <> 0 Then
@@ -2030,9 +2190,20 @@ Public Class StreamRecorderControl
             StartFfmbcFinalizeTimer()
             StartBackgroundFfmbcFinalization()
             UpdateFinalizeStatus(tempOutputFolder)
+        End If
+
+        If shouldAutoReconnect Then
+            statusValueLabel.Text = "Reconnecting"
+            statusValueLabel.ForeColor = Color.DarkOrange
+            AppendLog("Stream disconnected unexpectedly. Reconnecting in 3 seconds...")
+            reconnectTimer.Interval = 3000
+            reconnectTimer.Start()
         Else
-            statusValueLabel.Text = If(exitCode = 0, "Idle", $"Stopped (Exit {exitCode})")
-            statusValueLabel.ForeColor = If(exitCode = 0, Color.DarkGreen, Color.DarkOrange)
+            isUserRecordingActive = False
+            If Not shouldFinalizeWithFfmbc AndAlso Not HasPendingFfmbcFinalizeWork() Then
+                statusValueLabel.Text = If(exitCode = 0, "Idle", $"Stopped (Exit {exitCode})")
+                statusValueLabel.ForeColor = If(exitCode = 0, Color.DarkGreen, Color.DarkOrange)
+            End If
         End If
 
         UpdateUiState(False)
@@ -2121,6 +2292,8 @@ Public Class StreamRecorderControl
 
     Protected Overrides Sub Dispose(disposing As Boolean)
         If disposing Then
+            reconnectTimer.Stop()
+            reconnectTimer.Dispose()
             elapsedTimer.Stop()
             elapsedTimer.Dispose()
             ffmbcFinalizeTimer.Stop()

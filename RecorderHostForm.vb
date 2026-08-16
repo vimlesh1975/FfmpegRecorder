@@ -516,6 +516,8 @@ Partial Public Class RecorderHostForm
         For Each recorderControl In GetRecorderControls()
             recorderControl.SelectedProfileName = selectedProfileName
         Next
+
+        streamRecorderControl.SelectedProfileName = selectedProfileName
     End Sub
 
     Private Sub OnSharedRecordingModeChanged(sender As Object, e As EventArgs)
@@ -533,6 +535,7 @@ Partial Public Class RecorderHostForm
             recorderControl.SelectedRecordingModeName = selectedRecordingModeName
         Next
 
+        streamRecorderControl.SelectedRecordingModeName = selectedRecordingModeName
         UpdateSharedRecordingModeUiState()
     End Sub
 
@@ -546,6 +549,8 @@ Partial Public Class RecorderHostForm
         For Each recorderControl In GetRecorderControls()
             recorderControl.ClipIntervalSeconds = intervalSeconds
         Next
+
+        streamRecorderControl.ClipIntervalSeconds = intervalSeconds
     End Sub
 
     Private Sub UpdateSharedRecordingModeUiState()

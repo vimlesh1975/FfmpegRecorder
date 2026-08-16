@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
@@ -54,7 +54,7 @@
 
     <Delete Files="@(ExistingTimestampedExecutables)" />
     <Delete Files="@(DeckLinkPlayerHelperArtifacts)" />
-    <Move SourceFiles="$(ExecutableSourcePath)" DestinationFiles="$(TimestampedExecutablePath)" />
+    <Copy SourceFiles="$(ExecutableSourcePath)" DestinationFiles="$(TimestampedExecutablePath)" />
     <Message Importance="High" Text="Created timestamped executable: $(TimestampedExecutablePath)" />
   </Target>
 
