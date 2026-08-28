@@ -62,6 +62,8 @@ Public Class DeckLinkPlayerControl
         New DeckLinkOutputMode("1080i50", "Hi50", 1920, 1080, "25", True),
         New DeckLinkOutputMode("1080p25", "Hp25", 1920, 1080, "25", False),
         New DeckLinkOutputMode("1080p50", "Hp50", 1920, 1080, "50", False),
+        New DeckLinkOutputMode("4K 2160p25", "4k25", 3840, 2160, "25", False),
+        New DeckLinkOutputMode("4K 2160p50", "4k50", 3840, 2160, "50", False),
         New DeckLinkOutputMode("PAL 625i50", "pal", 720, 576, "25", True)
     }
 

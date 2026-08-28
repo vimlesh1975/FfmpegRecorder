@@ -71,6 +71,8 @@ Partial Public Class RecorderControl
 
     Private Const DeckLinkInputModeAuto As String = "Auto"
     Private Const DeckLinkInputModeHd50 As String = "1080i50"
+    Private Const DeckLinkInputModeUhd25 As String = "4K 2160p25"
+    Private Const DeckLinkInputModeUhd50 As String = "4K 2160p50"
     Private Const DeckLinkInputModePal As String = "PAL"
     Private Const PalAspect4By3 As String = "4:3"
     Private Const PalAspect16By9 As String = "16:9"
@@ -157,6 +159,42 @@ Partial Public Class RecorderControl
         ".mov",
         "-c:v prores_ks -profile:v 3 -pix_fmt yuv422p10le -vendor apl0 -bits_per_mb 2400 -c:a pcm_s16le -ar 48000",
         fileNameSuffix:="ProRes_422_HQ"
+    )
+    Private ReadOnly mp44kH264NvencProfile As New RecordingProfileDefinition(
+        "MP4 4K H.264 (NVENC)",
+        ".mp4",
+        "-c:v h264_nvenc -preset p4 -cq 22 -pix_fmt yuv420p -r 25 -movflags +faststart -c:a aac -b:a 256k -ar 48000 -ac 2",
+        fileNameSuffix:="4K_H264_NVENC"
+    )
+    Private ReadOnly mp44kHevcNvencProfile As New RecordingProfileDefinition(
+        "MP4 4K HEVC (NVENC)",
+        ".mp4",
+        "-c:v hevc_nvenc -preset p4 -cq 24 -pix_fmt yuv420p -r 25 -movflags +faststart -c:a aac -b:a 256k -ar 48000 -ac 2",
+        fileNameSuffix:="4K_HEVC_NVENC"
+    )
+    Private ReadOnly mp44kH264CpuProfile As New RecordingProfileDefinition(
+        "MP4 4K H.264 (CPU)",
+        ".mp4",
+        "-c:v libx264 -preset veryfast -crf 20 -pix_fmt yuv420p -profile:v high -r 25 -movflags +faststart -c:a aac -b:a 256k -ar 48000 -ac 2",
+        fileNameSuffix:="4K_H264_CPU"
+    )
+    Private ReadOnly mp44kHevcCpuProfile As New RecordingProfileDefinition(
+        "MP4 4K HEVC (CPU)",
+        ".mp4",
+        "-c:v libx265 -preset veryfast -crf 24 -pix_fmt yuv420p -r 25 -movflags +faststart -c:a aac -b:a 256k -ar 48000 -ac 2",
+        fileNameSuffix:="4K_HEVC_CPU"
+    )
+    Private ReadOnly proRes4k422Profile As New RecordingProfileDefinition(
+        "ProRes 4K 422",
+        ".mov",
+        "-c:v prores_ks -profile:v 2 -pix_fmt yuv422p10le -vendor apl0 -bits_per_mb 1600 -c:a pcm_s16le -ar 48000",
+        fileNameSuffix:="ProRes_4K_422"
+    )
+    Private ReadOnly proRes4k422HqProfile As New RecordingProfileDefinition(
+        "ProRes 4K 422 HQ",
+        ".mov",
+        "-c:v prores_ks -profile:v 3 -pix_fmt yuv422p10le -vendor apl0 -bits_per_mb 2400 -c:a pcm_s16le -ar 48000",
+        fileNameSuffix:="ProRes_4K_422_HQ"
     )
     Private ReadOnly dnxhd36Profile As New RecordingProfileDefinition(
         "DNxHD 36 (Proxy)",
@@ -598,6 +636,12 @@ Partial Public Class RecorderControl
             tsH264HighProfile,
             tsH264LowProfile,
             tsMpeg2Profile,
+            mp44kH264NvencProfile,
+            mp44kHevcNvencProfile,
+            mp44kH264CpuProfile,
+            mp44kHevcCpuProfile,
+            proRes4k422Profile,
+            proRes4k422HqProfile,
             proResProxyProfile,
             proResLtProfile,
             proRes422Profile,
@@ -662,6 +706,8 @@ Partial Public Class RecorderControl
         inputModeComboBox.Margin = New Padding(0, 3, 12, 3)
         inputModeComboBox.Items.AddRange(New Object() {
             DeckLinkInputModeHd50,
+            DeckLinkInputModeUhd25,
+            DeckLinkInputModeUhd50,
             DeckLinkInputModePal,
             DeckLinkInputModeAuto
         })
@@ -967,6 +1013,22 @@ Partial Public Class RecorderControl
         Return If(String.IsNullOrWhiteSpace(value), RecordingModeIntervalFiles, value.Trim())
     End Function
 
+    Private Shared Function NormalizeInputModeName(value As String) As String
+        If String.Equals(value, "4K UHD 25p", StringComparison.OrdinalIgnoreCase) OrElse
+           String.Equals(value, "2160p25", StringComparison.OrdinalIgnoreCase) OrElse
+           String.Equals(value, "4k25", StringComparison.OrdinalIgnoreCase) Then
+            Return DeckLinkInputModeUhd25
+        End If
+
+        If String.Equals(value, "4K UHD 50p", StringComparison.OrdinalIgnoreCase) OrElse
+           String.Equals(value, "2160p50", StringComparison.OrdinalIgnoreCase) OrElse
+           String.Equals(value, "4k50", StringComparison.OrdinalIgnoreCase) Then
+            Return DeckLinkInputModeUhd50
+        End If
+
+        Return value
+    End Function
+
     Private Function GetSelectedInputModeName() As String
         Return If(TryCast(inputModeComboBox.SelectedItem, String), DeckLinkInputModeAuto)
     End Function
@@ -979,6 +1041,10 @@ Partial Public Class RecorderControl
         Select Case GetSelectedInputModeName()
             Case DeckLinkInputModePal
                 Return "pal"
+            Case DeckLinkInputModeUhd25
+                Return "4k25"
+            Case DeckLinkInputModeUhd50
+                Return "4k50"
             Case DeckLinkInputModeAuto
                 Return Nothing
             Case Else
@@ -1002,6 +1068,10 @@ Partial Public Class RecorderControl
                 Return $"PAL {GetSelectedPalAspectName()} -> HD"
             Case DeckLinkInputModeAuto
                 Return $"Auto ({GetSelectedPalAspectName()} PAL -> HD)"
+            Case DeckLinkInputModeUhd25
+                Return DeckLinkInputModeUhd25
+            Case DeckLinkInputModeUhd50
+                Return DeckLinkInputModeUhd50
             Case Else
                 Return DeckLinkInputModeHd50
         End Select
@@ -1025,6 +1095,40 @@ Partial Public Class RecorderControl
             Return selectedProfile.VideoFilter
         End If
 
+        If String.Equals(inputModeName, DeckLinkInputModeUhd25, StringComparison.OrdinalIgnoreCase) Then
+            If UsesProgressiveHdRecordingFilter(selectedProfile) Then
+                Return "scale=1920:1080:flags=lanczos,fps=25"
+            End If
+
+            If IsHdOnlyProfile(selectedProfile) Then
+                Return "scale=1920:1080:flags=lanczos"
+            End If
+
+            If String.Equals(selectedProfile.ContainerExtension, ".mp4", StringComparison.OrdinalIgnoreCase) OrElse
+               String.Equals(selectedProfile.ContainerExtension, ".ts", StringComparison.OrdinalIgnoreCase) Then
+                Return "fps=25"
+            End If
+
+            Return selectedProfile.VideoFilter
+        End If
+
+        If String.Equals(inputModeName, DeckLinkInputModeUhd50, StringComparison.OrdinalIgnoreCase) Then
+            If UsesProgressiveHdRecordingFilter(selectedProfile) Then
+                Return "scale=1920:1080:flags=lanczos,fps=50"
+            End If
+
+            If IsHdOnlyProfile(selectedProfile) Then
+                Return "scale=1920:1080:flags=lanczos"
+            End If
+
+            If String.Equals(selectedProfile.ContainerExtension, ".mp4", StringComparison.OrdinalIgnoreCase) OrElse
+               String.Equals(selectedProfile.ContainerExtension, ".ts", StringComparison.OrdinalIgnoreCase) Then
+                Return "fps=50"
+            End If
+
+            Return selectedProfile.VideoFilter
+        End If
+
         Dim sourceSarExpression = If(String.Equals(inputModeName, DeckLinkInputModeAuto, StringComparison.OrdinalIgnoreCase), GetConditionalPalSarExpression(), GetPalSarValue())
 
         If UsesProgressiveHdRecordingFilter(selectedProfile) Then
@@ -1042,6 +1146,16 @@ Partial Public Class RecorderControl
             "scale=1920:1080:flags=lanczos:interl=1:force_original_aspect_ratio=decrease",
             "pad=1920:1080:(ow-iw)/2:(oh-ih)/2",
             "setsar=1")
+    End Function
+
+    Private Function IsHdOnlyProfile(selectedProfile As RecordingProfileDefinition) As Boolean
+        Return Object.ReferenceEquals(selectedProfile, xdcamHd422Profile) OrElse
+            Object.ReferenceEquals(selectedProfile, xdcamSonyCompatibleProfile) OrElse
+            Object.ReferenceEquals(selectedProfile, tsMpeg2Profile) OrElse
+            Object.ReferenceEquals(selectedProfile, dnxhd36Profile) OrElse
+            Object.ReferenceEquals(selectedProfile, dnxhd120Profile) OrElse
+            Object.ReferenceEquals(selectedProfile, dnxhd185Profile) OrElse
+            Object.ReferenceEquals(selectedProfile, dnxhd185xProfile)
     End Function
 
     Private Function UsesProgressiveHdRecordingFilter(selectedProfile As RecordingProfileDefinition) As Boolean
@@ -1167,7 +1281,7 @@ Partial Public Class RecorderControl
 
         Try
             savedDeviceName = If(String.IsNullOrWhiteSpace(settings.DeviceName), GetPreferredDefaultDeviceName(), settings.DeviceName)
-            savedInputModeValue = If(String.IsNullOrWhiteSpace(settings.InputModeName), DeckLinkInputModeAuto, settings.InputModeName)
+            savedInputModeValue = If(String.IsNullOrWhiteSpace(settings.InputModeName), DeckLinkInputModeAuto, NormalizeInputModeName(settings.InputModeName))
             savedPalAspectValue = If(String.IsNullOrWhiteSpace(settings.PalAspectName), PalAspect4By3, settings.PalAspectName)
 
             Dim selectedRecordingMode = NormalizeRecordingModeName(settings.RecordingModeName)
@@ -1654,7 +1768,9 @@ Partial Public Class RecorderControl
     End Sub
 
     Private Sub UpdatePalAspectUiState()
-        Dim shouldEnablePalAspect = Not String.Equals(GetSelectedInputModeName(), DeckLinkInputModeHd50, StringComparison.OrdinalIgnoreCase)
+        Dim selectedMode = GetSelectedInputModeName()
+        Dim shouldEnablePalAspect = String.Equals(selectedMode, DeckLinkInputModePal, StringComparison.OrdinalIgnoreCase) OrElse
+            String.Equals(selectedMode, DeckLinkInputModeAuto, StringComparison.OrdinalIgnoreCase)
         palAspectComboBox.Enabled = shouldEnablePalAspect AndAlso captureRunner Is Nothing
     End Sub
 

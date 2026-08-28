@@ -23,7 +23,9 @@ Friend NotInheritable Class InProcessDeckLinkOutputRunner
         {"ntsc", _BMDDisplayMode.bmdModeNTSC},
         {"Hp25", _BMDDisplayMode.bmdModeHD1080p25},
         {"Hp50", _BMDDisplayMode.bmdModeHD1080p50},
-        {"Hi50", _BMDDisplayMode.bmdModeHD1080i50}
+        {"Hi50", _BMDDisplayMode.bmdModeHD1080i50},
+        {"4k25", _BMDDisplayMode.bmdMode4K2160p25},
+        {"4k50", _BMDDisplayMode.bmdMode4K2160p50}
     }
 
     Private Shared ReadOnly ImageExtensions As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase) From {
@@ -788,6 +790,14 @@ Friend NotInheritable Class InProcessDeckLinkOutputRunner
 
         If width = 1920 AndAlso height = 1080 AndAlso normalizedRate = "50" Then
             Return _BMDDisplayMode.bmdModeHD1080p50
+        End If
+
+        If width = 3840 AndAlso height = 2160 AndAlso normalizedRate = "25" Then
+            Return _BMDDisplayMode.bmdMode4K2160p25
+        End If
+
+        If width = 3840 AndAlso height = 2160 AndAlso normalizedRate = "50" Then
+            Return _BMDDisplayMode.bmdMode4K2160p50
         End If
 
         If width = 720 AndAlso height = 576 Then
