@@ -106,6 +106,11 @@ Public Class DeckLinkPlayerControl
     Private ReadOnly browserSplit As New SplitContainer()
     Private ReadOnly folderTreeView As New TreeView()
     Private ReadOnly filesGridView As New DataGridView()
+    Private ReadOnly filesContextMenu As New ContextMenuStrip()
+    Private ReadOnly filesMenuPlay As New ToolStripMenuItem("Play")
+    Private ReadOnly filesMenuPlayInVlc As New ToolStripMenuItem("Play in VLC")
+    Private ReadOnly filesMenuFileInfo As New ToolStripMenuItem("File Information")
+    Private ReadOnly filesMenuOpenFolder As New ToolStripMenuItem("Open Containing Folder")
     Private ReadOnly previewPanel As New TableLayoutPanel()
     Private ReadOnly previewToolbarPanel As New FlowLayoutPanel()
     Private ReadOnly previewButton As New Button()
@@ -200,6 +205,20 @@ Public Class DeckLinkPlayerControl
         AddHandler folderTreeView.MouseDown, AddressOf OnFolderTreeMouseDown
         AddHandler folderTreeView.BeforeExpand, AddressOf OnFolderTreeBeforeExpand
         AddHandler folderTreeView.AfterSelect, AddressOf OnFolderTreeAfterSelect
+        filesContextMenu.Items.Add(filesMenuPlay)
+        filesContextMenu.Items.Add(filesMenuPlayInVlc)
+        filesContextMenu.Items.Add(New ToolStripSeparator())
+        filesContextMenu.Items.Add(filesMenuFileInfo)
+        filesContextMenu.Items.Add(filesMenuOpenFolder)
+        filesGridView.ContextMenuStrip = filesContextMenu
+
+        AddHandler filesGridView.CellMouseDown, AddressOf OnFilesGridCellMouseDown
+        AddHandler filesContextMenu.Opening, AddressOf OnFilesContextMenuOpening
+        AddHandler filesMenuPlay.Click, AddressOf OnFilesMenuPlayClick
+        AddHandler filesMenuPlayInVlc.Click, AddressOf OnFilesMenuPlayInVlcClick
+        AddHandler filesMenuFileInfo.Click, AddressOf OnFilesMenuFileInfoClick
+        AddHandler filesMenuOpenFolder.Click, AddressOf OnFilesMenuOpenFolderClick
+
         AddHandler filesGridView.SelectionChanged, AddressOf OnFilesGridSelectionChanged
         AddHandler filesGridView.CellDoubleClick, AddressOf OnFilesGridCellDoubleClick
         AddHandler filesGridView.KeyDown, AddressOf OnFilesGridKeyDown
@@ -775,6 +794,115 @@ Public Class DeckLinkPlayerControl
 
         RefreshScrubberForSelectedFile()
         UpdatePreviewButtons()
+    End Sub
+
+    Private Sub OnFilesGridCellMouseDown(sender As Object, e As DataGridViewCellMouseEventArgs)
+        If e.Button <> MouseButtons.Right OrElse e.RowIndex < 0 OrElse e.RowIndex >= filesGridView.Rows.Count Then
+            Return
+        End If
+
+        Dim colIndex = If(e.ColumnIndex >= 0, e.ColumnIndex, 0)
+        filesGridView.CurrentCell = filesGridView.Rows(e.RowIndex).Cells(colIndex)
+        filesGridView.ClearSelection()
+        filesGridView.Rows(e.RowIndex).Selected = True
+    End Sub
+
+    Private Sub OnFilesContextMenuOpening(sender As Object, e As System.ComponentModel.CancelEventArgs)
+        Dim path = GetSelectedFilePath()
+        Dim hasFile = Not String.IsNullOrWhiteSpace(path) AndAlso File.Exists(path)
+        filesMenuPlay.Enabled = hasFile
+        filesMenuPlayInVlc.Enabled = hasFile
+        filesMenuFileInfo.Enabled = hasFile
+        filesMenuOpenFolder.Enabled = hasFile
+    End Sub
+
+    Private Async Sub OnFilesMenuPlayClick(sender As Object, e As EventArgs)
+        Await StartSelectedPlaybackAsync()
+    End Sub
+
+    Private Sub OnFilesMenuPlayInVlcClick(sender As Object, e As EventArgs)
+        PlaySelectedFileInVlc()
+    End Sub
+
+    Private Sub OnFilesMenuFileInfoClick(sender As Object, e As EventArgs)
+        Dim path = GetSelectedFilePath()
+        If Not String.IsNullOrWhiteSpace(path) Then
+            OpenMediaInfoForm(path)
+        End If
+    End Sub
+
+    Private Sub OnFilesMenuOpenFolderClick(sender As Object, e As EventArgs)
+        OpenSelectedFileFolder()
+    End Sub
+
+    Private Sub OpenMediaInfoForm(filePath As String)
+        If String.IsNullOrWhiteSpace(filePath) OrElse Not File.Exists(filePath) Then
+            statusLabel.Text = "Media file missing"
+            Return
+        End If
+
+        Dim infoForm As New MediaInfoForm(filePath)
+        Dim parentForm = FindForm()
+        If parentForm IsNot Nothing Then
+            infoForm.Show(parentForm)
+        Else
+            infoForm.Show()
+        End If
+        statusLabel.Text = $"Opened MediaInfo for {System.IO.Path.GetFileName(filePath)}"
+    End Sub
+
+    Private Sub PlaySelectedFileInVlc()
+        Dim filePath = GetSelectedFilePath()
+        If String.IsNullOrWhiteSpace(filePath) OrElse Not File.Exists(filePath) Then
+            statusLabel.Text = "Choose a media file first"
+            Return
+        End If
+
+        Dim vlcPath As String = Nothing
+        For Each candidate In EnumerateVlcCandidates()
+            If File.Exists(candidate) Then
+                vlcPath = candidate
+                Exit For
+            End If
+        Next
+
+        Try
+            If Not String.IsNullOrWhiteSpace(vlcPath) Then
+                Dim psi As New ProcessStartInfo With {
+                    .FileName = vlcPath,
+                    .UseShellExecute = False
+                }
+                psi.ArgumentList.Add(filePath)
+                Process.Start(psi)
+                statusLabel.Text = "Opened in VLC"
+            Else
+                Process.Start(New ProcessStartInfo With {
+                    .FileName = filePath,
+                    .UseShellExecute = True
+                })
+                statusLabel.Text = "Opened in default media player"
+            End If
+        Catch ex As Exception
+            statusLabel.Text = $"Launch failed: {ex.Message}"
+        End Try
+    End Sub
+
+    Private Shared Iterator Function EnumerateVlcCandidates() As IEnumerable(Of String)
+        Yield Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "VideoLAN", "VLC", "vlc.exe")
+        Yield Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "VideoLAN", "VLC", "vlc.exe")
+    End Function
+
+    Private Sub OpenSelectedFileFolder()
+        Dim path = GetSelectedFilePath()
+        If String.IsNullOrWhiteSpace(path) OrElse Not File.Exists(path) Then
+            Return
+        End If
+
+        Try
+            Process.Start("explorer.exe", $"/select,""{path}""")
+        Catch ex As Exception
+            statusLabel.Text = $"Explorer launch failed: {ex.Message}"
+        End Try
     End Sub
 
     Private Async Sub OnFilesGridCellDoubleClick(sender As Object, e As DataGridViewCellEventArgs)
@@ -3860,6 +3988,7 @@ Public Class DeckLinkPlayerControl
         For Each button In markButtons
             StyleButton(button, foreground)
         Next
+        ApplyContextMenuTheme(filesContextMenu, darkModeEnabledValue)
         UpdateSpeedControls()
     End Sub
 
@@ -3873,6 +4002,109 @@ Public Class DeckLinkPlayerControl
             button.FlatAppearance.BorderColor = Color.FromArgb(90, 96, 104)
         End If
     End Sub
+
+    Private Shared Sub ApplyContextMenuTheme(menu As ContextMenuStrip, dark As Boolean)
+        menu.RenderMode = ToolStripRenderMode.Professional
+        menu.Renderer = New AppMenuRenderer(dark)
+        menu.BackColor = If(dark, Color.FromArgb(30, 35, 40), Color.FromArgb(246, 248, 250))
+        menu.ForeColor = If(dark, Color.FromArgb(239, 244, 248), Color.FromArgb(24, 29, 34))
+        menu.Font = New Font("Segoe UI", 9.0F, FontStyle.Regular, GraphicsUnit.Point)
+        menu.ShowImageMargin = False
+        menu.Padding = New Padding(2, 4, 2, 4)
+
+        For Each item As ToolStripItem In menu.Items
+            ApplyToolStripItemTheme(item, dark)
+        Next
+    End Sub
+
+    Private Shared Sub ApplyToolStripItemTheme(item As ToolStripItem, dark As Boolean)
+        Dim backColor = If(dark, Color.FromArgb(30, 35, 40), Color.FromArgb(246, 248, 250))
+        Dim textColor = If(dark, Color.FromArgb(239, 244, 248), Color.FromArgb(24, 29, 34))
+        Dim disabledTextColor = If(dark, Color.FromArgb(120, 130, 140), Color.FromArgb(160, 168, 176))
+
+        item.BackColor = backColor
+        item.ForeColor = If(item.Enabled, textColor, disabledTextColor)
+        item.Font = New Font("Segoe UI", 9.0F, FontStyle.Regular, GraphicsUnit.Point)
+        item.Margin = New Padding(0)
+        item.Padding = New Padding(10, 3, 18, 3)
+
+        Dim menuItem = TryCast(item, ToolStripMenuItem)
+        If menuItem IsNot Nothing Then
+            menuItem.DropDown.Renderer = New AppMenuRenderer(dark)
+            menuItem.DropDown.BackColor = backColor
+            menuItem.DropDown.ForeColor = textColor
+            menuItem.DropDown.Padding = New Padding(2, 4, 2, 4)
+
+            Dim dropDownMenu = TryCast(menuItem.DropDown, ToolStripDropDownMenu)
+            If dropDownMenu IsNot Nothing Then
+                dropDownMenu.ShowImageMargin = False
+            End If
+
+            For Each child As ToolStripItem In menuItem.DropDownItems
+                ApplyToolStripItemTheme(child, dark)
+            Next
+        End If
+    End Sub
+
+    Private NotInheritable Class AppMenuRenderer
+        Inherits ToolStripProfessionalRenderer
+
+        Private ReadOnly _dark As Boolean
+
+        Public Sub New(dark As Boolean)
+            _dark = dark
+        End Sub
+
+        Protected Overrides Sub OnRenderToolStripBackground(e As ToolStripRenderEventArgs)
+            Dim backColor = If(_dark, Color.FromArgb(30, 35, 40), Color.FromArgb(246, 248, 250))
+            Using brush As New SolidBrush(backColor)
+                e.Graphics.FillRectangle(brush, e.AffectedBounds)
+            End Using
+        End Sub
+
+        Protected Overrides Sub OnRenderToolStripBorder(e As ToolStripRenderEventArgs)
+            Dim borderColor = If(_dark, Color.FromArgb(64, 72, 82), Color.FromArgb(206, 214, 222))
+            Using pen As New Pen(borderColor)
+                Dim bounds = New Rectangle(Point.Empty, e.ToolStrip.Size)
+                bounds.Width -= 1
+                bounds.Height -= 1
+                e.Graphics.DrawRectangle(pen, bounds)
+            End Using
+        End Sub
+
+        Protected Overrides Sub OnRenderMenuItemBackground(e As ToolStripItemRenderEventArgs)
+            Dim hoverColor = If(_dark, Color.FromArgb(32, 116, 190), Color.FromArgb(41, 128, 185))
+            Dim backColor = If(_dark, Color.FromArgb(30, 35, 40), Color.FromArgb(246, 248, 250))
+            Dim itemColor = If(e.Item.Selected AndAlso e.Item.Enabled, hoverColor, backColor)
+            Using brush As New SolidBrush(itemColor)
+                e.Graphics.FillRectangle(brush, New Rectangle(Point.Empty, e.Item.Size))
+            End Using
+        End Sub
+
+        Protected Overrides Sub OnRenderItemText(e As ToolStripItemTextRenderEventArgs)
+            Dim textColor = If(_dark, Color.FromArgb(239, 244, 248), Color.FromArgb(24, 29, 34))
+            Dim disabledTextColor = If(_dark, Color.FromArgb(120, 130, 140), Color.FromArgb(160, 168, 176))
+            Dim item = e.Item
+            e.TextColor = If(item.Enabled, If(item.Selected, Color.White, textColor), disabledTextColor)
+            MyBase.OnRenderItemText(e)
+        End Sub
+
+        Protected Overrides Sub OnRenderArrow(e As ToolStripArrowRenderEventArgs)
+            Dim textColor = If(_dark, Color.FromArgb(239, 244, 248), Color.FromArgb(24, 29, 34))
+            Dim disabledTextColor = If(_dark, Color.FromArgb(120, 130, 140), Color.FromArgb(160, 168, 176))
+            Dim item = e.Item
+            e.ArrowColor = If(item IsNot Nothing AndAlso item.Enabled, If(item.Selected, Color.White, textColor), disabledTextColor)
+            MyBase.OnRenderArrow(e)
+        End Sub
+
+        Protected Overrides Sub OnRenderSeparator(e As ToolStripSeparatorRenderEventArgs)
+            Dim borderColor = If(_dark, Color.FromArgb(64, 72, 82), Color.FromArgb(206, 214, 222))
+            Using pen As New Pen(borderColor)
+                Dim y = e.Item.Height \ 2
+                e.Graphics.DrawLine(pen, 8, y, e.Item.Width - 8, y)
+            End Using
+        End Sub
+    End Class
 
     Private Sub ClearPreviewImage()
         Dim previousImage = previewPictureBox.Image

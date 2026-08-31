@@ -8,10 +8,381 @@
     ".NETCoreApp,Version=v10.0": {
       "FfmpegRecorder/1.0.0": {
         "dependencies": {
+          "MediaInfo.Wrapper.Core": "26.1.0",
           "DeckLinkAPI.Interop": "1.0.0.0"
         },
         "runtime": {
           "FfmpegRecorder.dll": {}
+        }
+      },
+      "MediaInfo.Core.Native/26.1.0": {
+        "runtimeTargets": {
+          "runtimes/alpine-x64/native/libmediainfo.so": {
+            "rid": "alpine-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/alpine-x64/native/libzen.so.0": {
+            "rid": "alpine-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/alpine.3.17-x64/native/libmediainfo.so": {
+            "rid": "alpine.3.17-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/alpine.3.17-x64/native/libzen.so.0": {
+            "rid": "alpine.3.17-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/alpine.3.18-x64/native/libmediainfo.so": {
+            "rid": "alpine.3.18-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/alpine.3.18-x64/native/libzen.so.0": {
+            "rid": "alpine.3.18-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/alpine.3.19-x64/native/libmediainfo.so": {
+            "rid": "alpine.3.19-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/alpine.3.19-x64/native/libzen.so.0": {
+            "rid": "alpine.3.19-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/alpine.3.20-x64/native/libmediainfo.so": {
+            "rid": "alpine.3.20-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/alpine.3.20-x64/native/libzen.so.0": {
+            "rid": "alpine.3.20-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/centos-stream-x64/native/libmediainfo.so": {
+            "rid": "centos-stream-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/centos-stream.10-x64/native/libmediainfo.so": {
+            "rid": "centos-stream.10-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/centos-stream.8-x64/native/libmediainfo.so": {
+            "rid": "centos-stream.8-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/centos-stream.9-x64/native/libmediainfo.so": {
+            "rid": "centos-stream.9-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/debian-x64/native/libmediainfo.so": {
+            "rid": "debian-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/debian-x64/native/libzen.so.0": {
+            "rid": "debian-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/debian.11-x64/native/libmediainfo.so": {
+            "rid": "debian.11-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/debian.11-x64/native/libzen.so.0": {
+            "rid": "debian.11-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/debian.12-x64/native/libmediainfo.so": {
+            "rid": "debian.12-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/debian.13-x64/native/libmediainfo.so": {
+            "rid": "debian.13-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/fedora-x64/native/libmediainfo.so": {
+            "rid": "fedora-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/fedora.37-x64/native/libmediainfo.so": {
+            "rid": "fedora.37-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/fedora.38-x64/native/libmediainfo.so": {
+            "rid": "fedora.38-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/fedora.39-x64/native/libmediainfo.so": {
+            "rid": "fedora.39-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/fedora.40-x64/native/libmediainfo.so": {
+            "rid": "fedora.40-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/fedora.41-x64/native/libmediainfo.so": {
+            "rid": "fedora.41-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/fedora.42-x64/native/libmediainfo.so": {
+            "rid": "fedora.42-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/kali-x64/native/libmediainfo.so": {
+            "rid": "kali-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/opensuse-x64/native/libmediainfo.so": {
+            "rid": "opensuse-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/opensuse.15.4-x64/native/libmediainfo.so": {
+            "rid": "opensuse.15.4-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/opensuse.15.4-x64/native/libzen.so.0": {
+            "rid": "opensuse.15.4-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/opensuse.15.5-x64/native/libmediainfo.so": {
+            "rid": "opensuse.15.5-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/opensuse.15.6-x64/native/libmediainfo.so": {
+            "rid": "opensuse.15.6-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/opensuse.16.0-x64/native/libmediainfo.so": {
+            "rid": "opensuse.16.0-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/osx-x64/native/libmediainfo.dylib": {
+            "rid": "osx-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/rhel-x64/native/libmediainfo.so": {
+            "rid": "rhel-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/rhel.10-x64/native/libmediainfo.so": {
+            "rid": "rhel.10-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/rhel.8-x64/native/libmediainfo.so": {
+            "rid": "rhel.8-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/rhel.9-x64/native/libmediainfo.so": {
+            "rid": "rhel.9-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/ubuntu-x64/native/libmediainfo.so": {
+            "rid": "ubuntu-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/ubuntu-x64/native/libzen.so.0": {
+            "rid": "ubuntu-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/ubuntu.18.04-x64/native/libmediainfo.so": {
+            "rid": "ubuntu.18.04-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/ubuntu.18.04-x64/native/libzen.so.0": {
+            "rid": "ubuntu.18.04-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/ubuntu.20.04-x64/native/libmediainfo.so": {
+            "rid": "ubuntu.20.04-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/ubuntu.20.04-x64/native/libzen.so.0": {
+            "rid": "ubuntu.20.04-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/ubuntu.22.04-x64/native/libmediainfo.so": {
+            "rid": "ubuntu.22.04-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/ubuntu.22.04-x64/native/libzen.so.0": {
+            "rid": "ubuntu.22.04-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/ubuntu.24.04-x64/native/libmediainfo.so": {
+            "rid": "ubuntu.24.04-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/ubuntu.24.04-x64/native/libzen.so.0": {
+            "rid": "ubuntu.24.04-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/ubuntu.25.10-x64/native/libmediainfo.so": {
+            "rid": "ubuntu.25.10-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/ubuntu.25.10-x64/native/libzen.so.0": {
+            "rid": "ubuntu.25.10-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/win-x64/native/brotlicommon.dll": {
+            "rid": "win-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/win-x64/native/brotlidec.dll": {
+            "rid": "win-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/win-x64/native/brotlienc.dll": {
+            "rid": "win-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/win-x64/native/libcrypto-3-x64.dll": {
+            "rid": "win-x64",
+            "assetType": "native",
+            "fileVersion": "3.6.1.0"
+          },
+          "runtimes/win-x64/native/libcurl.dll": {
+            "rid": "win-x64",
+            "assetType": "native",
+            "fileVersion": "8.19.1.0"
+          },
+          "runtimes/win-x64/native/libmediainfo.dll": {
+            "rid": "win-x64",
+            "assetType": "native",
+            "fileVersion": "26.1.0.0"
+          },
+          "runtimes/win-x64/native/libssh2.dll": {
+            "rid": "win-x64",
+            "assetType": "native",
+            "fileVersion": "1.11.1.0"
+          },
+          "runtimes/win-x64/native/libssl-3-x64.dll": {
+            "rid": "win-x64",
+            "assetType": "native",
+            "fileVersion": "3.6.1.0"
+          },
+          "runtimes/win-x86/native/brotlicommon.dll": {
+            "rid": "win-x86",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/win-x86/native/brotlidec.dll": {
+            "rid": "win-x86",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/win-x86/native/brotlienc.dll": {
+            "rid": "win-x86",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/win-x86/native/libcrypto-3.dll": {
+            "rid": "win-x86",
+            "assetType": "native",
+            "fileVersion": "3.6.1.0"
+          },
+          "runtimes/win-x86/native/libcurl.dll": {
+            "rid": "win-x86",
+            "assetType": "native",
+            "fileVersion": "8.19.1.0"
+          },
+          "runtimes/win-x86/native/libmediainfo.dll": {
+            "rid": "win-x86",
+            "assetType": "native",
+            "fileVersion": "26.1.0.0"
+          },
+          "runtimes/win-x86/native/libssh2.dll": {
+            "rid": "win-x86",
+            "assetType": "native",
+            "fileVersion": "1.11.1.0"
+          },
+          "runtimes/win-x86/native/libssl-3.dll": {
+            "rid": "win-x86",
+            "assetType": "native",
+            "fileVersion": "3.6.1.0"
+          }
+        }
+      },
+      "MediaInfo.Wrapper.Core/26.1.0": {
+        "dependencies": {
+          "MediaInfo.Core.Native": "26.1.0",
+          "Microsoft.Extensions.Logging.Abstractions": "10.0.5"
+        },
+        "runtime": {
+          "lib/net10.0/MediaInfo.Wrapper.Core.dll": {
+            "assemblyVersion": "26.1.0.0",
+            "fileVersion": "26.1.0.0"
+          }
+        }
+      },
+      "Microsoft.Extensions.DependencyInjection.Abstractions/10.0.5": {
+        "runtime": {
+          "lib/net10.0/Microsoft.Extensions.DependencyInjection.Abstractions.dll": {
+            "assemblyVersion": "10.0.0.0",
+            "fileVersion": "10.0.526.15411"
+          }
+        }
+      },
+      "Microsoft.Extensions.Logging.Abstractions/10.0.5": {
+        "dependencies": {
+          "Microsoft.Extensions.DependencyInjection.Abstractions": "10.0.5"
+        },
+        "runtime": {
+          "lib/net10.0/Microsoft.Extensions.Logging.Abstractions.dll": {
+            "assemblyVersion": "10.0.0.0",
+            "fileVersion": "10.0.526.15411"
+          }
         }
       },
       "DeckLinkAPI.Interop/1.0.0.0": {
@@ -29,6 +400,34 @@
       "type": "project",
       "serviceable": false,
       "sha512": ""
+    },
+    "MediaInfo.Core.Native/26.1.0": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-5Hr//VaBCsmDqjcj9uVEsHL2Y516HhG4uygeQUAFTltT1xAynsRr5fI7iSK6yWmgka2MsYi1GJ8wKPw03VhUQQ==",
+      "path": "mediainfo.core.native/26.1.0",
+      "hashPath": "mediainfo.core.native.26.1.0.nupkg.sha512"
+    },
+    "MediaInfo.Wrapper.Core/26.1.0": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-Q9l7s48pNqJURMZaVUi4d58z2gIQjtq+JL08sYJDa575EKz4+Um1neGiaBfqa/9KY1fFWLXTl9JY/JbCOU8D5A==",
+      "path": "mediainfo.wrapper.core/26.1.0",
+      "hashPath": "mediainfo.wrapper.core.26.1.0.nupkg.sha512"
+    },
+    "Microsoft.Extensions.DependencyInjection.Abstractions/10.0.5": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-iVMtq9eRvzyhx8949EGT0OCYJfXi737SbRVzWXE5GrOgGj5AaZ9eUuxA/BSUfmOMALKn/g8KfFaNQw0eiB3lyA==",
+      "path": "microsoft.extensions.dependencyinjection.abstractions/10.0.5",
+      "hashPath": "microsoft.extensions.dependencyinjection.abstractions.10.0.5.nupkg.sha512"
+    },
+    "Microsoft.Extensions.Logging.Abstractions/10.0.5": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-9HOdqlDtPptVcmKAjsQ/Nr5Rxfq6FMYLdhvZh1lVmeKR738qeYecQD7+ldooXf+u2KzzR1kafSphWngIM3C6ug==",
+      "path": "microsoft.extensions.logging.abstractions/10.0.5",
+      "hashPath": "microsoft.extensions.logging.abstractions.10.0.5.nupkg.sha512"
     },
     "DeckLinkAPI.Interop/1.0.0.0": {
       "type": "reference",

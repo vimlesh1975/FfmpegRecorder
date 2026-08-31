@@ -24,6 +24,10 @@
     </Reference>
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="MediaInfo.Wrapper.Core" Version="26.1.0" />
+  </ItemGroup>
+
   <Target Name="CreateTimestampedExecutableCopy" AfterTargets="Build" Condition="Exists('$(TargetDir)$(AssemblyName).exe')">
     <PropertyGroup>
       <ExecutableSourcePath>$(TargetDir)$(AssemblyName).exe</ExecutableSourcePath>
@@ -40,16 +44,6 @@
       <DeckLinkPlayerHelperArtifacts Include="$(TargetDir)decklinkplayer.deps.json" />
       <DeckLinkPlayerHelperArtifacts Include="$(TargetDir)decklinkplayer.runtimeconfig.json" />
       <DeckLinkPlayerHelperArtifacts Include="$(TargetDir)DeckLinkOutputHelper.exe" />
-      <DeckLinkPlayerHelperArtifacts Include="$(TargetDir)FFmpeg.AutoGen.*.dll" />
-      <DeckLinkPlayerHelperArtifacts Include="$(TargetDir)MediaInfo.Wrapper.Core.dll" />
-      <DeckLinkPlayerHelperArtifacts Include="$(TargetDir)Microsoft.Extensions.DependencyInjection.Abstractions.dll" />
-      <DeckLinkPlayerHelperArtifacts Include="$(TargetDir)Microsoft.Extensions.Logging.Abstractions.dll" />
-      <DeckLinkPlayerHelperArtifacts Include="$(TargetDir)brotli*.dll" />
-      <DeckLinkPlayerHelperArtifacts Include="$(TargetDir)libcrypto-3-x64.dll" />
-      <DeckLinkPlayerHelperArtifacts Include="$(TargetDir)libcurl.dll" />
-      <DeckLinkPlayerHelperArtifacts Include="$(TargetDir)libmediainfo.dll" />
-      <DeckLinkPlayerHelperArtifacts Include="$(TargetDir)libssh2.dll" />
-      <DeckLinkPlayerHelperArtifacts Include="$(TargetDir)libssl-3-x64.dll" />
     </ItemGroup>
 
     <Delete Files="@(ExistingTimestampedExecutables)" />
