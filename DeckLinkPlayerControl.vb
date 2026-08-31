@@ -115,6 +115,8 @@ Public Class DeckLinkPlayerControl
     Private ReadOnly previewToolbarPanel As New FlowLayoutPanel()
     Private ReadOnly previewButton As New Button()
     Private ReadOnly stopPreviewButton As New Button()
+    Private ReadOnly fullPreviewButton As New Button()
+    Private fullscreenPreviewForm As PreviewFullscreenForm
     Private ReadOnly selectedFileLabel As New Label()
     Private ReadOnly previewStateHostPanel As New Panel()
     Private ReadOnly speedButtonsPanel As New FlowLayoutPanel()
@@ -224,6 +226,7 @@ Public Class DeckLinkPlayerControl
         AddHandler filesGridView.KeyDown, AddressOf OnFilesGridKeyDown
         AddHandler previewButton.Click, AddressOf OnPreviewClicked
         AddHandler stopPreviewButton.Click, AddressOf OnStopPreviewClicked
+        AddHandler fullPreviewButton.Click, AddressOf OnFullPreviewClicked
         AddHandler markInButton.Click, AddressOf OnMarkInClicked
         AddHandler markOutButton.Click, AddressOf OnMarkOutClicked
         AddHandler gotoInButton.Click, AddressOf OnGotoInClicked
@@ -458,9 +461,14 @@ Public Class DeckLinkPlayerControl
 
         stopPreviewButton.Enabled = False
         stopPreviewButton.Size = New Size(76, 28)
-        stopPreviewButton.Margin = New Padding(0, 0, 10, 0)
+        stopPreviewButton.Margin = New Padding(0, 0, 6, 0)
         stopPreviewButton.Text = "Stop"
         stopPreviewButton.UseVisualStyleBackColor = True
+
+        fullPreviewButton.Size = New Size(96, 28)
+        fullPreviewButton.Margin = New Padding(0, 0, 10, 0)
+        fullPreviewButton.Text = "Full Preview"
+        fullPreviewButton.UseVisualStyleBackColor = True
 
         selectedFileLabel.AutoEllipsis = True
         selectedFileLabel.AutoSize = False
@@ -483,6 +491,7 @@ Public Class DeckLinkPlayerControl
 
         previewToolbarPanel.Controls.Add(previewButton)
         previewToolbarPanel.Controls.Add(stopPreviewButton)
+        previewToolbarPanel.Controls.Add(fullPreviewButton)
         previewToolbarPanel.Controls.Add(previewStateHostPanel)
         previewToolbarPanel.Controls.Add(selectedFileLabel)
 
@@ -930,6 +939,104 @@ Public Class DeckLinkPlayerControl
     Private Async Sub OnStopPreviewClicked(sender As Object, e As EventArgs)
         Await StopPlaybackAsync(clearImage:=True)
     End Sub
+
+    Private Sub OnFullPreviewClicked(sender As Object, e As EventArgs)
+        ToggleFullscreenPreview()
+    End Sub
+
+    Private Sub ToggleFullscreenPreview()
+        If fullscreenPreviewForm IsNot Nothing AndAlso Not fullscreenPreviewForm.IsDisposed Then
+            CloseFullscreenPreview()
+            Return
+        End If
+
+        OpenFullscreenPreview()
+    End Sub
+
+    Private Sub OpenFullscreenPreview()
+        Dim screen = System.Windows.Forms.Screen.AllScreens.FirstOrDefault(Function(candidate) Not candidate.Primary)
+        If screen Is Nothing Then
+            screen = System.Windows.Forms.Screen.FromControl(Me)
+        End If
+
+        Dim form As New PreviewFullscreenForm()
+        fullscreenPreviewForm = form
+        AddHandler form.FormClosed, Sub(s, e)
+                                        If Object.ReferenceEquals(fullscreenPreviewForm, form) Then
+                                            fullscreenPreviewForm = Nothing
+                                        End If
+                                        UpdateFullscreenPreviewButton()
+                                    End Sub
+
+        form.Bounds = screen.Bounds
+        Dim topLevel = FindForm()
+        If topLevel IsNot Nothing Then
+            form.Show(topLevel)
+        Else
+            form.Show()
+        End If
+        form.Bounds = screen.Bounds
+
+        If previewPictureBox.Image IsNot Nothing Then
+            form.SetPreviewImage(ExtractCleanVideoFrame(previewPictureBox.Image))
+        End If
+
+        UpdateFullscreenPreviewButton()
+        SetStatus($"Fullscreen preview on {screen.DeviceName}.")
+    End Sub
+
+    Private Sub CloseFullscreenPreview()
+        Dim form = fullscreenPreviewForm
+        fullscreenPreviewForm = Nothing
+
+        If form IsNot Nothing AndAlso Not form.IsDisposed Then
+            form.Close()
+        End If
+
+        UpdateFullscreenPreviewButton()
+    End Sub
+
+    Private Sub UpdateFullscreenPreviewButton()
+        fullPreviewButton.Text = If(fullscreenPreviewForm IsNot Nothing AndAlso Not fullscreenPreviewForm.IsDisposed, "Close Preview", "Full Preview")
+        StyleButton(fullPreviewButton, ForeColor)
+    End Sub
+
+    Private Sub UpdateFullscreenPreviewImage(image As Image)
+        Dim form = fullscreenPreviewForm
+        If form Is Nothing OrElse form.IsDisposed OrElse image Is Nothing Then
+            Return
+        End If
+
+        form.SetPreviewImage(ExtractCleanVideoFrame(image))
+    End Sub
+
+    Private Shared Function ExtractCleanVideoFrame(sourceImage As Image) As Image
+        If sourceImage Is Nothing Then
+            Return Nothing
+        End If
+
+        Const meterWidth As Integer = 30
+        If sourceImage.Width > (meterWidth * 2) Then
+            Dim videoWidth = sourceImage.Width - (meterWidth * 2)
+            Dim videoHeight = sourceImage.Height
+            Dim cleanBitmap As New Bitmap(videoWidth, videoHeight, PixelFormat.Format24bppRgb)
+            Using g As Graphics = Graphics.FromImage(cleanBitmap)
+                g.CompositingQuality = Drawing2D.CompositingQuality.HighSpeed
+                g.InterpolationMode = Drawing2D.InterpolationMode.NearestNeighbor
+                g.PixelOffsetMode = Drawing2D.PixelOffsetMode.HighSpeed
+                Dim srcRect As New Rectangle(meterWidth, 0, videoWidth, videoHeight)
+                Dim destRect As New Rectangle(0, 0, videoWidth, videoHeight)
+                g.DrawImage(sourceImage, destRect, srcRect, GraphicsUnit.Pixel)
+            End Using
+            Return cleanBitmap
+        Else
+            Try
+                Return CType(sourceImage.Clone(), Image)
+            Catch ex As Exception
+                Return Nothing
+            End Try
+        End If
+    End Function
 
     Private Async Sub OnPlaybackSpeedClicked(sender As Object, e As EventArgs)
         Dim clickedButton = TryCast(sender, Button)
@@ -2848,6 +2955,7 @@ Public Class DeckLinkPlayerControl
         Dim frame = CreateReversePreviewBitmap(frameData, sourceWidth, sourceHeight, reverseAudioLeftDbfs, reverseAudioRightDbfs)
         Dim previousImage = previewPictureBox.Image
         previewPictureBox.Image = frame
+        UpdateFullscreenPreviewImage(frame)
         previewStateLabel.Visible = False
 
         If previousImage IsNot Nothing Then
@@ -2863,6 +2971,7 @@ Public Class DeckLinkPlayerControl
         Dim frame = CreateReversePreviewBitmapFromUyvy(frameData, sourceWidth, sourceHeight, reverseAudioLeftDbfs, reverseAudioRightDbfs)
         Dim previousImage = previewPictureBox.Image
         previewPictureBox.Image = frame
+        UpdateFullscreenPreviewImage(frame)
         previewStateLabel.Visible = False
 
         If previousImage IsNot Nothing Then
@@ -3686,6 +3795,7 @@ Public Class DeckLinkPlayerControl
 
         Dim previousImage = previewPictureBox.Image
         previewPictureBox.Image = frame
+        UpdateFullscreenPreviewImage(frame)
         previewStateLabel.Visible = False
         CompleteFirstPreviewFrameWait(True)
 
@@ -3982,6 +4092,7 @@ Public Class DeckLinkPlayerControl
         StyleButton(openFolderButton, foreground)
         StyleButton(previewButton, foreground)
         StyleButton(stopPreviewButton, foreground)
+        StyleButton(fullPreviewButton, foreground)
         For Each button In speedPresetButtons
             StyleButton(button, foreground)
         Next
@@ -4110,6 +4221,10 @@ Public Class DeckLinkPlayerControl
         Dim previousImage = previewPictureBox.Image
         previewPictureBox.Image = Nothing
 
+        If fullscreenPreviewForm IsNot Nothing AndAlso Not fullscreenPreviewForm.IsDisposed Then
+            fullscreenPreviewForm.ClearPreviewImage()
+        End If
+
         If previousImage IsNot Nothing Then
             previousImage.Dispose()
         End If
@@ -4191,6 +4306,7 @@ Public Class DeckLinkPlayerControl
                 scrubCache.Dispose()
             End If
 
+            CloseFullscreenPreview()
             ClearPreviewImage()
         End If
 
