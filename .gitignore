@@ -15,6 +15,15 @@ bin/Debug/net10.0-windows/*
 !bin/Debug/net10.0-windows/ffprobe.exe
 !bin/Debug/net10.0-windows/yt-dlp.exe
 !bin/Debug/net10.0-windows/ffmbc-0.7.4-x64.exe
+!bin/Debug/net10.0-windows/MediaInfo.Wrapper.Core.dll
+!bin/Debug/net10.0-windows/Microsoft.Extensions.DependencyInjection.Abstractions.dll
+!bin/Debug/net10.0-windows/Microsoft.Extensions.Logging.Abstractions.dll
+!bin/Debug/net10.0-windows/runtimes/
+bin/Debug/net10.0-windows/runtimes/*
+!bin/Debug/net10.0-windows/runtimes/win-x64/
+!bin/Debug/net10.0-windows/runtimes/win-x64/**
+!bin/Debug/net10.0-windows/runtimes/win-x86/
+!bin/Debug/net10.0-windows/runtimes/win-x86/**
 !bin/Debug/net10.0-windows/LICENSE
 obj/
 .vs/
@@ -22,3 +31,4 @@ obj/
 *.suo
 *.cache
 *.pdb
+
