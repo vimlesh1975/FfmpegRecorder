@@ -103,6 +103,10 @@ Public Class DeckLinkPlayerControl
     Private ReadOnly outputDeviceComboBox As New ComboBox()
     Private ReadOnly outputModeLabel As New Label()
     Private ReadOnly outputModeComboBox As New ComboBox()
+    Private ReadOnly searchLabel As New Label()
+    Private ReadOnly searchTextBox As New TextBox()
+    Private ReadOnly clearSearchButton As New Button()
+    Private ReadOnly currentFolderFiles As New List(Of FileInfo)()
     Private ReadOnly browserSplit As New SplitContainer()
     Private ReadOnly folderTreeView As New TreeView()
     Private ReadOnly filesGridView As New DataGridView()
@@ -116,6 +120,7 @@ Public Class DeckLinkPlayerControl
     Private ReadOnly previewButton As New Button()
     Private ReadOnly stopPreviewButton As New Button()
     Private ReadOnly fullPreviewButton As New Button()
+    Private ReadOnly loopCheckBox As New CheckBox()
     Private fullscreenPreviewForm As PreviewFullscreenForm
     Private ReadOnly selectedFileLabel As New Label()
     Private ReadOnly previewStateHostPanel As New Panel()
@@ -227,6 +232,7 @@ Public Class DeckLinkPlayerControl
         AddHandler previewButton.Click, AddressOf OnPreviewClicked
         AddHandler stopPreviewButton.Click, AddressOf OnStopPreviewClicked
         AddHandler fullPreviewButton.Click, AddressOf OnFullPreviewClicked
+        AddHandler loopCheckBox.CheckedChanged, AddressOf OnLoopCheckedChanged
         AddHandler markInButton.Click, AddressOf OnMarkInClicked
         AddHandler markOutButton.Click, AddressOf OnMarkOutClicked
         AddHandler gotoInButton.Click, AddressOf OnGotoInClicked
@@ -239,6 +245,9 @@ Public Class DeckLinkPlayerControl
         AddHandler markOutTextBox.KeyDown, AddressOf OnMarkFieldKeyDown
         AddHandler outputDeviceComboBox.SelectedIndexChanged, AddressOf OnOutputSelectionChanged
         AddHandler outputModeComboBox.SelectedIndexChanged, AddressOf OnOutputSelectionChanged
+        AddHandler searchTextBox.TextChanged, AddressOf OnSearchTextChanged
+        AddHandler searchTextBox.KeyDown, AddressOf OnSearchTextBoxKeyDown
+        AddHandler clearSearchButton.Click, AddressOf OnClearSearchClicked
         AddHandler scrubberTrackBar.MouseDown, AddressOf OnScrubberMouseDown
         AddHandler scrubberTrackBar.MouseMove, AddressOf OnScrubberMouseMove
         AddHandler scrubberTrackBar.MouseUp, AddressOf OnScrubberMouseUp
@@ -362,11 +371,14 @@ Public Class DeckLinkPlayerControl
         toolbarPanel.Controls.Add(refreshButton, 2, 0)
         toolbarPanel.Controls.Add(openFolderButton, 3, 0)
 
-        outputPanel.ColumnCount = 5
-        outputPanel.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 58.0F))
-        outputPanel.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 280.0F))
-        outputPanel.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 42.0F))
-        outputPanel.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 104.0F))
+        outputPanel.ColumnCount = 8
+        outputPanel.ColumnStyles.Add(New ColumnStyle(SizeType.AutoSize))
+        outputPanel.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 142.0F))
+        outputPanel.ColumnStyles.Add(New ColumnStyle(SizeType.AutoSize))
+        outputPanel.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 88.0F))
+        outputPanel.ColumnStyles.Add(New ColumnStyle(SizeType.AutoSize))
+        outputPanel.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 190.0F))
+        outputPanel.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 50.0F))
         outputPanel.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 100.0F))
         outputPanel.Dock = DockStyle.Fill
         outputPanel.Margin = New Padding(0, 0, 0, 6)
@@ -375,32 +387,50 @@ Public Class DeckLinkPlayerControl
 
         outputDeviceLabel.AutoSize = True
         outputDeviceLabel.Dock = DockStyle.Fill
-        outputDeviceLabel.Margin = New Padding(0, 4, 8, 0)
+        outputDeviceLabel.Margin = New Padding(0, 4, 6, 0)
         outputDeviceLabel.Text = "SDI Out"
         outputDeviceLabel.TextAlign = ContentAlignment.MiddleLeft
 
         outputDeviceComboBox.Dock = DockStyle.Fill
         outputDeviceComboBox.DropDownStyle = ComboBoxStyle.DropDownList
-        outputDeviceComboBox.Margin = New Padding(0, 0, 8, 0)
+        outputDeviceComboBox.Margin = New Padding(0, 0, 10, 0)
 
         outputModeLabel.AutoSize = True
         outputModeLabel.Dock = DockStyle.Fill
-        outputModeLabel.Margin = New Padding(0, 4, 8, 0)
+        outputModeLabel.Margin = New Padding(0, 4, 6, 0)
         outputModeLabel.Text = "Mode"
         outputModeLabel.TextAlign = ContentAlignment.MiddleLeft
 
         outputModeComboBox.Dock = DockStyle.Fill
         outputModeComboBox.DropDownStyle = ComboBoxStyle.DropDownList
-        outputModeComboBox.Margin = New Padding(0, 0, 8, 0)
+        outputModeComboBox.Margin = New Padding(0, 0, 10, 0)
         outputModeComboBox.Items.AddRange(OutputModes.Cast(Of Object)().ToArray())
         Dim savedOutputModeName = GetSavedDeckLinkOutputModeName()
         Dim savedOutputMode = OutputModes.FirstOrDefault(Function(outputMode) String.Equals(outputMode.DisplayName, savedOutputModeName, StringComparison.OrdinalIgnoreCase))
         outputModeComboBox.SelectedItem = If(savedOutputMode, OutputModes(0))
 
+        searchLabel.AutoSize = True
+        searchLabel.Dock = DockStyle.Fill
+        searchLabel.Margin = New Padding(0, 4, 6, 0)
+        searchLabel.Text = "Search"
+        searchLabel.TextAlign = ContentAlignment.MiddleLeft
+
+        searchTextBox.Dock = DockStyle.Fill
+        searchTextBox.Margin = New Padding(0, 0, 4, 0)
+        searchTextBox.PlaceholderText = "Search files..."
+
+        clearSearchButton.Dock = DockStyle.Fill
+        clearSearchButton.Margin = New Padding(0)
+        clearSearchButton.Text = "Clear"
+        clearSearchButton.UseVisualStyleBackColor = True
+
         outputPanel.Controls.Add(outputDeviceLabel, 0, 0)
         outputPanel.Controls.Add(outputDeviceComboBox, 1, 0)
         outputPanel.Controls.Add(outputModeLabel, 2, 0)
         outputPanel.Controls.Add(outputModeComboBox, 3, 0)
+        outputPanel.Controls.Add(searchLabel, 4, 0)
+        outputPanel.Controls.Add(searchTextBox, 5, 0)
+        outputPanel.Controls.Add(clearSearchButton, 6, 0)
 
         browserSplit.Dock = DockStyle.Fill
         browserSplit.Margin = New Padding(0, 0, 0, 8)
@@ -470,6 +500,12 @@ Public Class DeckLinkPlayerControl
         fullPreviewButton.Text = "Full Preview"
         fullPreviewButton.UseVisualStyleBackColor = True
 
+        loopCheckBox.AutoSize = True
+        loopCheckBox.Checked = GetSavedDeckLinkLoopSetting()
+        loopCheckBox.Margin = New Padding(0, 4, 10, 0)
+        loopCheckBox.Text = "Loop"
+        loopCheckBox.UseVisualStyleBackColor = True
+
         selectedFileLabel.AutoEllipsis = True
         selectedFileLabel.AutoSize = False
         selectedFileLabel.Margin = New Padding(0, 6, 0, 0)
@@ -492,6 +528,7 @@ Public Class DeckLinkPlayerControl
         previewToolbarPanel.Controls.Add(previewButton)
         previewToolbarPanel.Controls.Add(stopPreviewButton)
         previewToolbarPanel.Controls.Add(fullPreviewButton)
+        previewToolbarPanel.Controls.Add(loopCheckBox)
         previewToolbarPanel.Controls.Add(previewStateHostPanel)
         previewToolbarPanel.Controls.Add(selectedFileLabel)
 
@@ -1411,10 +1448,17 @@ Public Class DeckLinkPlayerControl
         Dim position = playbackClockOffset + ScaleTimeSpan(elapsed, Math.Max(0.0R, playbackSpeedMultiplier))
         Dim duration = GetSelectedDuration()
 
-        If duration.HasValue AndAlso duration.Value > TimeSpan.Zero AndAlso position >= duration.Value Then
-            SetScrubberPosition(duration.Value)
-            StopPlaybackClock()
-            Return
+        If duration.HasValue AndAlso duration.Value > TimeSpan.Zero Then
+            If loopCheckBox.Checked Then
+                Dim durationTicks = duration.Value.Ticks
+                Dim currentTicks = position.Ticks Mod durationTicks
+                SetScrubberPosition(TimeSpan.FromTicks(currentTicks))
+                Return
+            ElseIf position >= duration.Value Then
+                SetScrubberPosition(duration.Value)
+                StopPlaybackClock()
+                Return
+            End If
         End If
 
         SetScrubberPosition(position)
@@ -1640,6 +1684,15 @@ Public Class DeckLinkPlayerControl
         Return GetSavedDeckLinkOutputSetting("Mode")
     End Function
 
+    Private Shared Function GetSavedDeckLinkLoopSetting() As Boolean
+        Dim settingValue = GetSavedDeckLinkOutputSetting("Loop")
+        Dim isLoop As Boolean
+        If Boolean.TryParse(settingValue, isLoop) Then
+            Return isLoop
+        End If
+        Return False
+    End Function
+
     Private Shared Function GetSavedDeckLinkOutputSetting(settingName As String) As String
         Try
             If Not File.Exists(DeckLinkPlayerOutputSettingsFilePath) Then
@@ -1677,10 +1730,29 @@ Public Class DeckLinkPlayerControl
             Directory.CreateDirectory(Path.GetDirectoryName(DeckLinkPlayerOutputSettingsFilePath))
             File.WriteAllLines(DeckLinkPlayerOutputSettingsFilePath, {
                 $"Device={deviceName}",
-                $"Mode={outputMode.DisplayName}"
+                $"Mode={outputMode.DisplayName}",
+                $"Loop={loopCheckBox.Checked}"
             })
         Catch
         End Try
+    End Sub
+
+    Private Async Sub OnLoopCheckedChanged(sender As Object, e As EventArgs)
+        SaveDeckLinkOutputSelection()
+
+        If loopCheckBox.Checked Then
+            SetStatus("Loop playback enabled.")
+        Else
+            SetStatus("Loop playback disabled.")
+        End If
+
+        If IsPlaybackActive() AndAlso Not isSeekingPlayback Then
+            playbackStartOffset = GetScrubberOffset()
+            Dim filePath = If(IsScrubberLoaded(), scrubberLoadedFilePath, GetSelectedFilePath())
+            If Not String.IsNullOrWhiteSpace(filePath) Then
+                Await StartSelectedPlaybackAsync(filePathOverride:=filePath)
+            End If
+        End If
     End Sub
 
     Private Sub LoadFolderTree(folderPath As String)
@@ -1690,6 +1762,7 @@ Public Class DeckLinkPlayerControl
             folderTreeView.Nodes.Clear()
 
             If String.IsNullOrWhiteSpace(folderPath) OrElse Not Directory.Exists(folderPath) Then
+                currentFolderFiles.Clear()
                 filesGridView.Rows.Clear()
                 SetStatus("Recording folder is not available.", warning:=True)
                 Return
@@ -1768,6 +1841,7 @@ Public Class DeckLinkPlayerControl
 
         isLoadingFiles = True
         refreshButton.Enabled = False
+        currentFolderFiles.Clear()
         filesGridView.Rows.Clear()
         selectedFilePath = Nothing
         RefreshScrubberForSelectedFile()
@@ -1781,9 +1855,16 @@ Public Class DeckLinkPlayerControl
                 Return
             End If
 
-            PopulateFileGrid(files)
+            currentFolderFiles.AddRange(files)
+            ApplyFileFilter()
             StartDurationProbe(files.Select(Function(fileInfo) fileInfo.FullName).ToList())
-            SetStatus($"{files.Count} media file(s) loaded from {folderPath}.")
+
+            Dim filterText = searchTextBox.Text.Trim()
+            If String.IsNullOrWhiteSpace(filterText) Then
+                SetStatus($"{files.Count} media file(s) loaded from {folderPath}.")
+            Else
+                SetStatus($"{filesGridView.Rows.Count} of {files.Count} media file(s) match ""{filterText}"".")
+            End If
         Catch ex As Exception
             If Not IsDisposed Then
                 SetStatus($"Unable to load files: {ex.Message}", warning:=True)
@@ -1794,6 +1875,68 @@ Public Class DeckLinkPlayerControl
             UpdatePreviewButtons()
         End Try
     End Function
+
+    Private Sub ApplyFileFilter()
+        Dim filterText = searchTextBox.Text.Trim()
+        Dim filteredFiles As List(Of FileInfo)
+
+        If String.IsNullOrWhiteSpace(filterText) Then
+            filteredFiles = currentFolderFiles.ToList()
+        Else
+            filteredFiles = currentFolderFiles.Where(Function(fi) fi.Name.IndexOf(filterText, StringComparison.OrdinalIgnoreCase) >= 0).ToList()
+        End If
+
+        Dim previousSelectedPath = selectedFilePath
+        PopulateFileGrid(filteredFiles)
+
+        If Not String.IsNullOrWhiteSpace(previousSelectedPath) Then
+            For Each row As DataGridViewRow In filesGridView.Rows
+                If row.Tag IsNot Nothing AndAlso String.Equals(TryCast(row.Tag, String), previousSelectedPath, StringComparison.OrdinalIgnoreCase) Then
+                    row.Selected = True
+                    filesGridView.CurrentCell = row.Cells("Name")
+                    Exit For
+                End If
+            Next
+        End If
+
+        selectedFilePath = GetSelectedFilePath()
+        If String.IsNullOrWhiteSpace(selectedFilePath) Then
+            selectedFileLabel.Text = If(filesGridView.Rows.Count = 0 AndAlso Not String.IsNullOrWhiteSpace(filterText), "No matching files.", "Select a file in the grid, then Play or double-click.")
+        Else
+            selectedFileLabel.Text = Path.GetFileName(selectedFilePath)
+        End If
+
+        RefreshScrubberForSelectedFile()
+        UpdatePreviewButtons()
+    End Sub
+
+    Private Sub OnSearchTextChanged(sender As Object, e As EventArgs)
+        ApplyFileFilter()
+        Dim filterText = searchTextBox.Text.Trim()
+        If Not String.IsNullOrWhiteSpace(filterText) Then
+            SetStatus($"{filesGridView.Rows.Count} of {currentFolderFiles.Count} media file(s) match ""{filterText}"".")
+        ElseIf currentFolderFiles.Count > 0 Then
+            SetStatus($"{currentFolderFiles.Count} media file(s) loaded.")
+        End If
+    End Sub
+
+    Private Sub OnClearSearchClicked(sender As Object, e As EventArgs)
+        searchTextBox.Text = String.Empty
+        searchTextBox.Focus()
+    End Sub
+
+    Private Sub OnSearchTextBoxKeyDown(sender As Object, e As KeyEventArgs)
+        If e.KeyCode = Keys.Escape Then
+            searchTextBox.Text = String.Empty
+            e.Handled = True
+            e.SuppressKeyPress = True
+        ElseIf e.KeyCode = Keys.Down Then
+            If filesGridView.Rows.Count > 0 Then
+                filesGridView.Focus()
+                e.Handled = True
+            End If
+        End If
+    End Sub
 
     Private Shared Function GetMediaFiles(folderPath As String) As List(Of FileInfo)
         If String.IsNullOrWhiteSpace(folderPath) OrElse Not Directory.Exists(folderPath) Then
@@ -1812,9 +1955,17 @@ Public Class DeckLinkPlayerControl
         filesGridView.Rows.Clear()
 
         For Each fileInfo In files
+            Dim durationText = "--"
+            Dim probedDuration As TimeSpan
+            If durationByPath.TryGetValue(fileInfo.FullName, probedDuration) Then
+                durationText = FormatDuration(probedDuration)
+            ElseIf IsImageFile(fileInfo.FullName) Then
+                durationText = "Still"
+            End If
+
             Dim rowIndex = filesGridView.Rows.Add(
                 fileInfo.Name,
-                "--",
+                durationText,
                 FormatBytes(fileInfo.Length),
                 fileInfo.FullName)
 
@@ -3244,7 +3395,7 @@ Public Class DeckLinkPlayerControl
             Dim fileHasAudio = Await Task.Run(Function() ProbeHasAudioStream(filePath))
             Dim runner As New PreviewFrameReader()
             previewRunner = runner
-            runner.Start(ffmpegPath, BuildPreviewArguments(filePath, fileHasAudio, startOffset, playbackSpeedMultiplier), AppContext.BaseDirectory)
+            runner.Start(ffmpegPath, BuildPreviewArguments(filePath, fileHasAudio, startOffset, playbackSpeedMultiplier, loopCheckBox.Checked), AppContext.BaseDirectory)
             UpdatePreviewButtons()
         Catch ex As Exception
             previewRunner = Nothing
@@ -3560,7 +3711,7 @@ Public Class DeckLinkPlayerControl
             scrubDeckLinkOutputKey = BuildScrubDeckLinkOutputKey(filePath, deviceName, outputMode)
             lastDeckLinkOutputMessage = String.Empty
             SetStatus($"Starting SDI: {Path.GetFileName(filePath)} -> {deviceName} {outputMode.DisplayName}")
-            Await runner.StartPlaybackAsync(ffmpegPath, filePath, deviceName, outputMode.FormatCode, outputMode.Width, outputMode.Height, outputMode.FrameRate, outputMode.IsInterlaced, fileHasAudio, startOffset, playbackSpeedMultiplier)
+            Await runner.StartPlaybackAsync(ffmpegPath, filePath, deviceName, outputMode.FormatCode, outputMode.Width, outputMode.Height, outputMode.FrameRate, outputMode.IsInterlaced, fileHasAudio, startOffset, playbackSpeedMultiplier, loopCheckBox.Checked)
             SetStatus($"Playing SDI through DeckLink API: {Path.GetFileName(filePath)} -> {deviceName} {outputMode.DisplayName}")
         Catch ex As Exception
             If outputRunner IsNot Nothing Then
@@ -3642,7 +3793,7 @@ Public Class DeckLinkPlayerControl
         Try
             Dim runner As New FfmpegProcessRunner()
             audioMonitorRunner = runner
-            runner.Start(ffplayPath, BuildAudioMonitorArguments(filePath, startOffset, playbackSpeed), AppContext.BaseDirectory)
+            runner.Start(ffplayPath, BuildAudioMonitorArguments(filePath, startOffset, playbackSpeed, loopCheckBox.Checked), AppContext.BaseDirectory)
             SetStatus($"Player audio listen active at {FormatPlaybackSpeed(playbackSpeed)}: {Path.GetFileName(filePath)}")
         Catch ex As Exception
             audioMonitorRunner = Nothing
@@ -3666,8 +3817,11 @@ Public Class DeckLinkPlayerControl
         End If
     End Sub
 
-    Private Shared Function BuildAudioMonitorArguments(filePath As String, startOffset As TimeSpan, playbackSpeed As Double) As String
+    Private Shared Function BuildAudioMonitorArguments(filePath As String, startOffset As TimeSpan, playbackSpeed As Double, isLooping As Boolean) As String
         Dim builder As New StringBuilder("-hide_banner -loglevel warning -nostats -nodisp -autoexit -volume 100 ")
+        If isLooping AndAlso Not IsImageFile(filePath) Then
+            builder.Append("-loop 0 ")
+        End If
         Dim audioSpeedFilter = BuildAudioSpeedFilterChain(playbackSpeed)
 
         If startOffset > TimeSpan.Zero AndAlso Not IsImageFile(filePath) Then
@@ -3690,7 +3844,7 @@ Public Class DeckLinkPlayerControl
         Return String.IsNullOrWhiteSpace(deviceName) OrElse String.Equals(deviceName, NoDeckLinkOutputText, StringComparison.OrdinalIgnoreCase)
     End Function
 
-    Private Shared Function BuildPreviewArguments(filePath As String, hasAudioStream As Boolean, startOffset As TimeSpan, playbackSpeed As Double) As String
+    Private Shared Function BuildPreviewArguments(filePath As String, hasAudioStream As Boolean, startOffset As TimeSpan, playbackSpeed As Double, isLooping As Boolean) As String
         Dim previewWidth = 900
         Dim previewHeight = 540
         Dim meterChannelWidth = 96
@@ -3715,10 +3869,15 @@ Public Class DeckLinkPlayerControl
 
         If IsImageFile(filePath) Then
             builder.Append("-loop 1 -framerate 25 ")
-        ElseIf Math.Abs(normalizedSpeed - 1.0R) < 0.001R Then
-            builder.Append("-re ")
         Else
-            builder.Append("-readrate ").Append(speedNumber).Append(" ")
+            If isLooping Then
+                builder.Append("-stream_loop -1 ")
+            End If
+            If Math.Abs(normalizedSpeed - 1.0R) < 0.001R Then
+                builder.Append("-re ")
+            Else
+                builder.Append("-readrate ").Append(speedNumber).Append(" ")
+            End If
         End If
 
         If startOffset > TimeSpan.Zero AndAlso Not IsImageFile(filePath) Then
@@ -4059,6 +4218,8 @@ Public Class DeckLinkPlayerControl
         folderLabel.ForeColor = foreground
         outputDeviceLabel.ForeColor = foreground
         outputModeLabel.ForeColor = foreground
+        searchLabel.ForeColor = foreground
+        loopCheckBox.ForeColor = foreground
         previewStateLabel.ForeColor = secondaryForeground
         selectedFileLabel.ForeColor = secondaryForeground
         statusLabel.ForeColor = secondaryForeground
@@ -4069,6 +4230,8 @@ Public Class DeckLinkPlayerControl
         outputDeviceComboBox.ForeColor = foreground
         outputModeComboBox.BackColor = inputBackground
         outputModeComboBox.ForeColor = foreground
+        searchTextBox.BackColor = inputBackground
+        searchTextBox.ForeColor = foreground
         markInTextBox.BackColor = inputBackground
         markInTextBox.ForeColor = foreground
         markOutTextBox.BackColor = inputBackground
@@ -4090,6 +4253,7 @@ Public Class DeckLinkPlayerControl
 
         StyleButton(refreshButton, foreground)
         StyleButton(openFolderButton, foreground)
+        StyleButton(clearSearchButton, foreground)
         StyleButton(previewButton, foreground)
         StyleButton(stopPreviewButton, foreground)
         StyleButton(fullPreviewButton, foreground)

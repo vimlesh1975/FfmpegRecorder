@@ -170,7 +170,7 @@ Friend NotInheritable Class InProcessDeckLinkOutputRunner
         End Try
     End Function
 
-    Public Async Function StartPlaybackAsync(ffmpegPath As String, filePath As String, deviceName As String, formatCode As String, width As Integer, height As Integer, frameRate As String, isInterlaced As Boolean, hasAudioStream As Boolean, startOffset As TimeSpan, playbackSpeed As Double) As Task
+    Public Async Function StartPlaybackAsync(ffmpegPath As String, filePath As String, deviceName As String, formatCode As String, width As Integer, height As Integer, frameRate As String, isInterlaced As Boolean, hasAudioStream As Boolean, startOffset As TimeSpan, playbackSpeed As Double, Optional isLooping As Boolean = False) As Task
         ThrowIfDisposed()
 
         Await Task.Run(
@@ -194,10 +194,10 @@ Friend NotInheritable Class InProcessDeckLinkOutputRunner
                             DisableAudioOutputLocked()
                         End If
 
-                        localVideoDecoder = StartDecoder(ffmpegPath, BuildVideoDecoderArguments(filePath, outputWidth, outputHeight, frameRate, isInterlaced, startOffset, normalizedSpeed))
+                        localVideoDecoder = StartDecoder(ffmpegPath, BuildVideoDecoderArguments(filePath, outputWidth, outputHeight, frameRate, isInterlaced, startOffset, normalizedSpeed, isLooping))
 
                         If playAudio Then
-                            localAudioDecoder = StartDecoder(ffmpegPath, BuildAudioDecoderArguments(filePath, startOffset, normalizedSpeed))
+                            localAudioDecoder = StartDecoder(ffmpegPath, BuildAudioDecoderArguments(filePath, startOffset, normalizedSpeed, isLooping))
                         End If
 
                         playbackCancellation = tokenSource
@@ -632,7 +632,7 @@ Friend NotInheritable Class InProcessDeckLinkOutputRunner
         Return args
     End Function
 
-    Private Shared Function BuildVideoDecoderArguments(filePath As String, width As Integer, height As Integer, frameRate As String, isInterlaced As Boolean, startOffset As TimeSpan, playbackSpeed As Double) As IReadOnlyList(Of String)
+    Private Shared Function BuildVideoDecoderArguments(filePath As String, width As Integer, height As Integer, frameRate As String, isInterlaced As Boolean, startOffset As TimeSpan, playbackSpeed As Double, Optional isLooping As Boolean = False) As IReadOnlyList(Of String)
         Dim args As New List(Of String) From {
             "-hide_banner",
             "-loglevel",
@@ -645,9 +645,15 @@ Friend NotInheritable Class InProcessDeckLinkOutputRunner
             args.Add("1")
             args.Add("-framerate")
             args.Add(NormalizeRateString(frameRate))
-        ElseIf startOffset > TimeSpan.Zero Then
-            args.Add("-ss")
-            args.Add(FormatFfmpegTimestamp(startOffset))
+        Else
+            If isLooping Then
+                args.Add("-stream_loop")
+                args.Add("-1")
+            End If
+            If startOffset > TimeSpan.Zero Then
+                args.Add("-ss")
+                args.Add(FormatFfmpegTimestamp(startOffset))
+            End If
         End If
 
         args.Add("-i")
@@ -668,13 +674,18 @@ Friend NotInheritable Class InProcessDeckLinkOutputRunner
         Return args
     End Function
 
-    Private Shared Function BuildAudioDecoderArguments(filePath As String, startOffset As TimeSpan, playbackSpeed As Double) As IReadOnlyList(Of String)
+    Private Shared Function BuildAudioDecoderArguments(filePath As String, startOffset As TimeSpan, playbackSpeed As Double, Optional isLooping As Boolean = False) As IReadOnlyList(Of String)
         Dim args As New List(Of String) From {
             "-hide_banner",
             "-loglevel",
             "warning",
             "-nostats"
         }
+
+        If isLooping Then
+            args.Add("-stream_loop")
+            args.Add("-1")
+        End If
 
         If startOffset > TimeSpan.Zero Then
             args.Add("-ss")
