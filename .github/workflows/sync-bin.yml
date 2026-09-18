@@ -1,0 +1,51 @@
+name: Sync Binaries to DeckLink Control Center
+
+# Trigger this workflow whenever an .exe or .dll is pushed to the repo
+on:
+  push:
+    paths:
+      - '**/*.exe'
+      - '**/*.dll'
+    branches:
+      - main
+      - master
+
+jobs:
+  sync-binaries:
+    runs-on: ubuntu-latest
+    steps:
+      # Step 1: Checkout the source repository
+      - name: Checkout Source Repo
+        uses: actions/checkout@v4
+        with:
+          path: source-repo
+
+      # Step 2: Checkout the target DeckLink-Control-Center repository using your PAT
+      - name: Checkout Target Repo
+        uses: actions/checkout@v4
+        with:
+          repository: vimlesh1975/DeckLink-Control-Center
+          token: ${{ secrets.TARGET_REPO_TOKEN }}
+          path: target-repo
+
+      # Step 3: Find and Copy the executables to the dashboard's bin/apps/ folder
+      - name: Copy Bin Files
+        run: |
+          mkdir -p target-repo/bin/apps/
+          
+          # Find all .exe and .dll files in the source repo and copy them over
+          find source-repo -type f \( -name "*.exe" -o -name "*.dll" \) -exec cp {} target-repo/bin/apps/ \;
+
+      # Step 4: Commit and Push the changes to the dashboard repo
+      - name: Commit and Push to DeckLink-Control-Center
+        run: |
+          cd target-repo
+          
+          # Setup git config as a bot
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Add, commit, and push
+          git add bin/apps/
+          git commit -m "Auto-sync updated binaries from ${{ github.repository }}" || echo "No changes to commit"
+          git push origin main
