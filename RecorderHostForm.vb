@@ -870,7 +870,7 @@ Partial Public Class RecorderHostForm
             Return
         End If
 
-        Await deckLinkPlayerControl.StopPlaybackAsync(True)
+        Await deckLinkPlayerControl.StopPlaybackAsync(False)
         StopDeckLinkRouting()
 
         routedRecorderControl = recorderControl
