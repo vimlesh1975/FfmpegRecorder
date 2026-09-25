@@ -1,6 +1,7 @@
 Imports System.Diagnostics
 Imports System.Drawing
 Imports System.IO
+Imports System.Threading
 Imports System.Threading.Tasks
 
 Friend Class PreviewFrameReader
@@ -9,6 +10,7 @@ Friend Class PreviewFrameReader
     Private currentProcess As Process
     Private outputReadTask As Task
     Private ReadOnly syncRoot As New Object()
+    Private streamCancellation As CancellationTokenSource
 
     Public Event FrameReady(frame As Bitmap)
     Public Event LogReceived(message As String)
@@ -71,6 +73,38 @@ Friend Class PreviewFrameReader
         outputReadTask = Task.Run(Sub() ReadFrames(process.StandardOutput.BaseStream))
     End Sub
 
+    Public Sub StartFromStream(stream As Stream)
+        SyncLock syncRoot
+            If outputReadTask IsNot Nothing Then
+                Throw New InvalidOperationException("Preview is already running.")
+            End If
+            
+            streamCancellation = New CancellationTokenSource()
+        End SyncLock
+
+        RaiseEvent LogReceived("Preview stream started.")
+        outputReadTask = Task.Run(
+            Async Function()
+                Try
+                    Await ReadStreamAsync(stream, streamCancellation.Token)
+                Catch
+                End Try
+            End Function)
+    End Sub
+
+    Private Async Function ReadStreamAsync(stream As Stream, token As CancellationToken) As Task
+        While Not token.IsCancellationRequested
+            Try
+                ' Re-use ReadFrames logic but adapted for async if needed.
+                ' ReadFrames handles the infinite loop and returns when EOF is reached.
+                ReadFrames(stream)
+                Exit While
+            Catch
+                Exit While
+            End Try
+        End While
+    End Function
+
     Public Sub [Stop]()
         Dim process As Process = Nothing
 
@@ -78,17 +112,18 @@ Friend Class PreviewFrameReader
             process = currentProcess
         End SyncLock
 
-        If process Is Nothing Then
-            Return
-        End If
 
         Try
-            If Not process.HasExited Then
+            If process IsNot Nothing AndAlso Not process.HasExited Then
                 process.StandardInput.WriteLine("q")
 
                 If Not process.WaitForExit(2500) Then
                     process.Kill(True)
                 End If
+            End If
+
+            If streamCancellation IsNot Nothing Then
+                streamCancellation.Cancel()
             End If
 
             If outputReadTask IsNot Nothing Then
@@ -197,12 +232,23 @@ Friend Class PreviewFrameReader
 
     Private Sub OnExited(sender As Object, e As EventArgs)
         Dim exitedProcess = DirectCast(sender, Process)
-        Dim exitCode = exitedProcess.ExitCode
+        Dim exitCode As Integer = -1
+        
+        Try
+            exitCode = exitedProcess.ExitCode
+        Catch
+        End Try
 
-        RemoveHandler exitedProcess.ErrorDataReceived, AddressOf OnDataReceived
-        RemoveHandler exitedProcess.Exited, AddressOf OnExited
+        Try
+            RemoveHandler exitedProcess.ErrorDataReceived, AddressOf OnDataReceived
+            RemoveHandler exitedProcess.Exited, AddressOf OnExited
+        Catch
+        End Try
 
-        exitedProcess.Dispose()
+        Try
+            exitedProcess.Dispose()
+        Catch
+        End Try
 
         SyncLock syncRoot
             If Object.ReferenceEquals(currentProcess, exitedProcess) Then
@@ -225,10 +271,16 @@ Friend Class PreviewFrameReader
             Return
         End If
 
-        If Not process.HasExited Then
-            process.Kill(True)
-        End If
+        Try
+            If Not process.HasExited Then
+                process.Kill(True)
+            End If
+        Catch
+        End Try
 
-        process.Dispose()
+        Try
+            process.Dispose()
+        Catch
+        End Try
     End Sub
 End Class

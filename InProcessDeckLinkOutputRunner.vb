@@ -232,6 +232,54 @@ Friend NotInheritable Class InProcessDeckLinkOutputRunner
             End Sub)
     End Function
 
+    Public Async Function StartLiveRoutingAsync(videoStream As Stream, audioStream As Stream, deviceName As String, formatCode As String, width As Integer, height As Integer, frameRate As String) As Task
+        ThrowIfDisposed()
+
+        Await Task.Run(
+            Sub()
+                StopPlayback(disableVideoOutput:=False)
+
+                Dim tokenSource As New CancellationTokenSource()
+
+                Try
+                    SyncLock lifecycleLock
+                        ThrowIfDisposed()
+                        EnsureOutputLocked(deviceName, formatCode, width, height, frameRate)
+
+                        If audioStream IsNot Nothing Then
+                            EnableAudioOutputLocked()
+                        Else
+                            DisableAudioOutputLocked()
+                        End If
+
+                        playbackCancellation = tokenSource
+                        videoDecoder = Nothing
+                        audioDecoder = Nothing
+
+                        Dim activeOutput = output
+                        Dim activeWidth = outputWidth
+                        Dim activeHeight = outputHeight
+                        Dim activeRowBytes = outputRowBytes
+                        Dim activeFrameBytes = outputFrameBytes
+                        Dim activeFrameDuration = outputFrameDuration
+                        Dim activeTimeScale = outputTimeScale
+                        playbackTask = Task.Run(
+                            Async Function()
+                                Await RunPlaybackStreamsAsync(tokenSource, videoStream, audioStream, activeOutput, activeWidth, activeHeight, activeRowBytes, activeFrameBytes, activeFrameDuration, activeTimeScale)
+                            End Function)
+                    End SyncLock
+                Catch
+                    tokenSource.Dispose()
+
+                    SyncLock lifecycleLock
+                        DisableAudioOutputLocked()
+                    End SyncLock
+
+                    Throw
+                End Try
+            End Sub)
+    End Function
+
     Public Sub [Stop]()
         StopPlayback(disableVideoOutput:=True)
     End Sub
@@ -258,7 +306,7 @@ Friend NotInheritable Class InProcessDeckLinkOutputRunner
                     End Function)
                 audioPumpTask = Task.Run(
                     Async Function()
-                        Await PumpAudioAsync(activeOutput, localAudioDecoder, token)
+                        Await PumpAudioAsync(activeOutput, localAudioDecoder.StandardOutput.BaseStream, token)
                     End Function)
             End If
 
@@ -341,6 +389,84 @@ Friend NotInheritable Class InProcessDeckLinkOutputRunner
         If shouldRaiseExit Then
             RaiseEvent Exited(exitCode)
         End If
+    End Function
+
+    Private Async Function RunPlaybackStreamsAsync(tokenSource As CancellationTokenSource, videoStream As Stream, audioStream As Stream, activeOutput As IDeckLinkOutput_v14_2_1, width As Integer, height As Integer, rowBytes As Integer, frameBytes As Integer, frameDuration As Long, timeScale As Long) As Task
+        Dim token = tokenSource.Token
+        Dim audioPumpTask As Task = Nothing
+
+        Try
+            If audioStream IsNot Nothing Then
+                audioPumpTask = Task.Run(
+                    Async Function()
+                        Await PumpAudioAsync(activeOutput, audioStream, token)
+                    End Function)
+            End If
+
+            Dim frameBuffer(frameBytes - 1) As Byte
+            Dim frameNumber = 0L
+            Dim playbackStopwatch = Stopwatch.StartNew()
+            Dim frameTicks = Math.Max(1L, Stopwatch.Frequency * frameDuration \ Math.Max(1L, timeScale))
+
+            While Not token.IsCancellationRequested
+                If Not Await ReadExactFrameAsync(videoStream, frameBuffer, token) Then
+                    Exit While
+                End If
+
+                DisplayRawFrame(activeOutput, frameBuffer, width, height, rowBytes, frameBytes)
+                frameNumber += 1
+
+                If frameNumber Mod 100 = 0 Then
+                    RaiseEvent LogReceived($"sdk_frame={frameNumber}")
+                End If
+
+                Dim targetTicks = frameNumber * frameTicks
+                Dim remainingTicks = targetTicks - playbackStopwatch.ElapsedTicks
+
+                If remainingTicks > 0 Then
+                    Dim delayMs = CInt(Math.Min(remainingTicks * 1000 \ Stopwatch.Frequency, 100L))
+
+                    If delayMs > 0 Then
+                        Await Task.Delay(delayMs, token)
+                    End If
+                End If
+            End While
+        Catch ex As Exception
+            RaiseEvent LogReceived($"DeckLink routing failed: {ex.Message}")
+        End Try
+
+        If Not token.IsCancellationRequested Then
+            Try
+                tokenSource.Cancel()
+            Catch
+            End Try
+        End If
+
+        If audioPumpTask IsNot Nothing Then
+            Try
+                Await audioPumpTask
+            Catch
+            End Try
+        End If
+
+        Dim shouldRaiseExit = False
+
+        SyncLock lifecycleLock
+                If Object.ReferenceEquals(playbackCancellation, tokenSource) Then
+                    playbackCancellation = Nothing
+                    playbackTask = Nothing
+                    DisableAudioOutputLocked()
+                    ReleaseOutputLocked()
+                    shouldRaiseExit = Not disposed AndAlso Not token.IsCancellationRequested
+                End If
+            End SyncLock
+
+            tokenSource.Dispose()
+
+            If shouldRaiseExit Then
+                RaiseEvent Exited(0)
+            End If
+
     End Function
 
     Private Sub StopPlayback(disableVideoOutput As Boolean)
@@ -891,14 +1017,14 @@ Friend NotInheritable Class InProcessDeckLinkOutputRunner
         End Try
     End Function
 
-    Private Async Function PumpAudioAsync(activeOutput As IDeckLinkOutput_v14_2_1, process As Process, cancellationToken As CancellationToken) As Task
+    Private Async Function PumpAudioAsync(activeOutput As IDeckLinkOutput_v14_2_1, audioStream As Stream, cancellationToken As CancellationToken) As Task
         Dim bytesPerSampleFrame = AudioChannels * AudioBytesPerSample
         Dim managedBuffer(AudioChunkSampleFrames * bytesPerSampleFrame - 1) As Byte
         Dim unmanagedBuffer = Marshal.AllocHGlobal(managedBuffer.Length)
 
         Try
             While Not cancellationToken.IsCancellationRequested
-                Dim bytesRead = Await ReadAlignedAudioBlockAsync(process.StandardOutput.BaseStream, managedBuffer, bytesPerSampleFrame, cancellationToken)
+                Dim bytesRead = Await ReadAlignedAudioBlockAsync(audioStream, managedBuffer, bytesPerSampleFrame, cancellationToken)
 
                 If bytesRead <= 0 Then
                     Exit While

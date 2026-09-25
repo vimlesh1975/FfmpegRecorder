@@ -1,6 +1,7 @@
 Imports System.Diagnostics
 Imports System.Drawing
 Imports System.IO
+Imports System.IO.Pipes
 Imports System.Runtime.InteropServices
 Imports System.Threading.Tasks
 
@@ -41,6 +42,18 @@ Partial Public Class RecorderHostForm
     Private suppressRecordingDirectoryEvents As Boolean
     Private isDarkModeEnabled As Boolean = True
 
+    Private ReadOnly routeCam1Button As New Button() With {.Text = "CAM1", .Size = New Size(60, 24)}
+    Private ReadOnly routeCam2Button As New Button() With {.Text = "CAM2", .Size = New Size(60, 24)}
+    Private ReadOnly routeCam3Button As New Button() With {.Text = "CAM3", .Size = New Size(60, 24)}
+    Private ReadOnly routeCam4Button As New Button() With {.Text = "CAM4", .Size = New Size(60, 24)}
+    Private ReadOnly stopRouteButton As New Button() With {.Text = "Stop", .Size = New Size(60, 24)}
+    Private WithEvents deckLinkRouter As PreviewFrameReader
+    Private routingVideoPipeServer As NamedPipeServerStream
+    Private routingAudioPipeServer As NamedPipeServerStream
+    Private deckLinkRouterRunner As InProcessDeckLinkOutputRunner
+    Private deckLinkRouterFfmpegProcess As Process
+    Private routedRecorderControl As RecorderControl
+
     Private Shared ReadOnly Property AudioListenSettingsFilePath As String
         Get
             Return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "FfmpegRecorder", "audio-listen.txt")
@@ -78,6 +91,13 @@ Partial Public Class RecorderHostForm
         AddHandler browseRecordingDirectoryButton.Click, AddressOf OnBrowseRecordingDirectoryClicked
         AddHandler recordingDirectoryTextBox.Leave, AddressOf OnRecordingDirectoryCommitted
         AddHandler recordingDirectoryTextBox.KeyDown, AddressOf OnRecordingDirectoryKeyDown
+        
+        AddHandler routeCam1Button.Click, Sub() StartDeckLinkRouting("CAM1", leftRecorderControl)
+        AddHandler routeCam2Button.Click, Sub() StartDeckLinkRouting("CAM2", rightRecorderControl)
+        AddHandler routeCam3Button.Click, Sub() StartDeckLinkRouting("CAM3", thirdRecorderControl)
+        AddHandler routeCam4Button.Click, Sub() StartDeckLinkRouting("CAM4", fourthRecorderControl)
+        AddHandler stopRouteButton.Click, AddressOf StopDeckLinkRouting
+        
         AddHandler Load, AddressOf RecorderHostForm_Load
         AddHandler SizeChanged, AddressOf RecorderHostForm_SizeChanged
         AddHandler FormClosing, AddressOf RecorderHostForm_FormClosing
@@ -133,6 +153,7 @@ Partial Public Class RecorderHostForm
 
         leftSectionPanel.Controls.Add(BuildCommonSection("Setup", profileLabel, profileComboBox, recordingModeLabel, recordingModeComboBox, intervalLabel, intervalUpDown, inputModeLabel, inputModeComboBox, palAspectLabel, palAspectComboBox))
         leftSectionPanel.Controls.Add(BuildCommonSection("Recording", recordAllButton, stopAllButton, openRecordingsButton, deleteAllButton))
+        leftSectionPanel.Controls.Add(BuildCommonSection("Route to DeckLink", routeCam1Button, routeCam2Button, routeCam3Button, routeCam4Button, stopRouteButton))
         leftSectionPanel.Controls.Add(BuildCommonSection("Folder", recordingDirectoryPanel))
         leftSectionPanel.Controls.Add(BuildCommonSection("Audio", audioListenPanel))
         leftSectionPanel.Controls.Add(BuildCommonSection("View", darkModeCheckBox))
@@ -473,6 +494,11 @@ Partial Public Class RecorderHostForm
         End Try
 
         Try
+            StopDeckLinkRouting()
+        Catch
+        End Try
+
+        Try
             deckLinkPlayerControl.Dispose()
         Catch
         End Try
@@ -792,6 +818,124 @@ Partial Public Class RecorderHostForm
         Return defaultSelection
     End Function
 
+    Private Sub deckLinkRouter_FrameReady(frame As Bitmap) Handles deckLinkRouter.FrameReady
+        deckLinkPlayerControl.UpdateRoutedPreview(frame)
+    End Sub
+
+    Private Sub deckLinkRouter_LogReceived(message As String) Handles deckLinkRouter.LogReceived
+        Try
+            File.AppendAllText(Path.Combine(AppContext.BaseDirectory, "router_log.txt"), message & Environment.NewLine)
+        Catch
+        End Try
+    End Sub
+
+    Private Async Sub StartDeckLinkRouting(camName As String, recorderControl As RecorderControl)
+        Dim inputDevice = recorderControl.SelectedDeviceName
+        Dim outputDevice = deckLinkPlayerControl.SelectedOutputDeviceName
+        Dim formatCode = deckLinkPlayerControl.SelectedOutputModeFormatCode
+
+        If String.IsNullOrWhiteSpace(inputDevice) Then
+            MessageBox.Show(Me, $"No DeckLink input device selected for {camName}.", "Routing", MessageBoxButtons.OK, MessageBoxIcon.Warning)
+            Return
+        End If
+
+        If String.IsNullOrWhiteSpace(outputDevice) Then
+            MessageBox.Show(Me, "No DeckLink output device selected in the player tab.", "Routing", MessageBoxButtons.OK, MessageBoxIcon.Warning)
+            Return
+        End If
+
+        Await deckLinkPlayerControl.StopPlaybackAsync(True)
+        StopDeckLinkRouting()
+
+        routedRecorderControl = recorderControl
+        routedRecorderControl.StopIdlePreview("Routing to DeckLink...", fast:=True)
+
+        Dim inputFormatCode = recorderControl.SelectedInputFormatCode
+        Dim isInterlaced = If(String.IsNullOrWhiteSpace(inputFormatCode), False, inputFormatCode.EndsWith("i50", StringComparison.OrdinalIgnoreCase) OrElse inputFormatCode.EndsWith("i5994", StringComparison.OrdinalIgnoreCase) OrElse inputFormatCode.EndsWith("i60", StringComparison.OrdinalIgnoreCase))
+        Dim inputArgs = If(String.IsNullOrWhiteSpace(inputFormatCode), $"-thread_queue_size 1024 -f decklink -channels 2 -i ""{inputDevice}""", $"-thread_queue_size 1024 -f decklink -channels 2 -format_code {inputFormatCode} -i ""{inputDevice}""")
+
+        Dim videoPipeName = "DeckLinkRouteVideo_" & Guid.NewGuid().ToString("N")
+        Dim mjpegPipeName = "DeckLinkRoutePreview_" & Guid.NewGuid().ToString("N")
+        Dim audioPipeName = "DeckLinkRouteAudio_" & Guid.NewGuid().ToString("N")
+
+        routingVideoPipeServer = New NamedPipeServerStream(videoPipeName, PipeDirection.In, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous, 4147200, 4147200)
+        Dim mjpegPipeServer = New NamedPipeServerStream(mjpegPipeName, PipeDirection.In, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous, 1048576, 1048576)
+        routingAudioPipeServer = New NamedPipeServerStream(audioPipeName, PipeDirection.In, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous, 192000, 192000)
+
+        Dim frameRate = If(String.IsNullOrWhiteSpace(inputFormatCode), "25", If(inputFormatCode.Contains("5994"), "29.97", If(inputFormatCode.Contains("60"), "30", "25")))
+        If inputFormatCode?.StartsWith("Hp") = True OrElse inputFormatCode?.StartsWith("Hi") = True Then
+            If inputFormatCode.EndsWith("50") Then frameRate = "50"
+            If inputFormatCode.EndsWith("5994") Then frameRate = "59.94"
+            If inputFormatCode.EndsWith("60") Then frameRate = "60"
+        End If
+        
+        Dim args = $"-hide_banner -loglevel quiet {inputArgs} -map 0:v -vf ""scale=960:-1"" -an -c:v mjpeg -q:v 6 -flush_packets 1 -f mjpeg \\.\pipe\{mjpegPipeName} -map 0:v -c:v rawvideo -pix_fmt uyvy422 -f rawvideo \\.\pipe\{videoPipeName} -map 0:a -c:a pcm_s16le -f s16le \\.\pipe\{audioPipeName}"
+
+        deckLinkRouterRunner = New InProcessDeckLinkOutputRunner()
+        deckLinkRouter = New PreviewFrameReader()
+
+        Dim startInfo As New ProcessStartInfo() With {
+            .FileName = Path.Combine(AppContext.BaseDirectory, "ffmpeg.exe"),
+            .Arguments = args,
+            .WorkingDirectory = AppContext.BaseDirectory,
+            .UseShellExecute = False,
+            .CreateNoWindow = True
+        }
+        deckLinkRouterFfmpegProcess = New Process() With { .StartInfo = startInfo }
+        deckLinkRouterFfmpegProcess.Start()
+
+        Dim connectVideoTask = routingVideoPipeServer.WaitForConnectionAsync()
+        Dim connectMjpegTask = mjpegPipeServer.WaitForConnectionAsync()
+        Dim connectAudioTask = routingAudioPipeServer.WaitForConnectionAsync()
+
+        Task.WhenAll(connectVideoTask, connectMjpegTask, connectAudioTask).ContinueWith(
+            Sub(t)
+                If t.IsFaulted OrElse t.IsCanceled Then Return
+                deckLinkRouter.StartFromStream(mjpegPipeServer)
+                deckLinkRouterRunner.StartLiveRoutingAsync(routingVideoPipeServer, routingAudioPipeServer, outputDevice, formatCode, 1920, 1080, frameRate)
+            End Sub)
+    End Sub
+
+    Private Sub StopDeckLinkRouting()
+        If routedRecorderControl IsNot Nothing Then
+            routedRecorderControl.StartIdlePreview()
+            routedRecorderControl = Nothing
+        End If
+
+        If deckLinkRouter IsNot Nothing Then
+            deckLinkRouter.Stop()
+            deckLinkRouter.Dispose()
+            deckLinkRouter = Nothing
+        End If
+
+        If deckLinkRouterRunner IsNot Nothing Then
+            deckLinkRouterRunner.Stop()
+            deckLinkRouterRunner.Dispose()
+            deckLinkRouterRunner = Nothing
+        End If
+
+        If deckLinkRouterFfmpegProcess IsNot Nothing Then
+            Try
+                If Not deckLinkRouterFfmpegProcess.HasExited Then
+                    deckLinkRouterFfmpegProcess.Kill()
+                End If
+            Catch
+            End Try
+            deckLinkRouterFfmpegProcess.Dispose()
+            deckLinkRouterFfmpegProcess = Nothing
+        End If
+
+        If routingVideoPipeServer IsNot Nothing Then
+            routingVideoPipeServer.Dispose()
+            routingVideoPipeServer = Nothing
+        End If
+
+        If routingAudioPipeServer IsNot Nothing Then
+            routingAudioPipeServer.Dispose()
+            routingAudioPipeServer = Nothing
+        End If
+    End Sub
+    
     Private Function GetSavedDarkModeSelection() As Boolean
         Try
             If File.Exists(DarkModeSettingsFilePath) Then
