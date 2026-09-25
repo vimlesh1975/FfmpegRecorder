@@ -42,11 +42,11 @@ Partial Public Class RecorderHostForm
     Private suppressRecordingDirectoryEvents As Boolean
     Private isDarkModeEnabled As Boolean = True
 
-    Private ReadOnly routeCam1Button As New Button() With {.Text = "CAM1", .Size = New Size(60, 24)}
-    Private ReadOnly routeCam2Button As New Button() With {.Text = "CAM2", .Size = New Size(60, 24)}
-    Private ReadOnly routeCam3Button As New Button() With {.Text = "CAM3", .Size = New Size(60, 24)}
-    Private ReadOnly routeCam4Button As New Button() With {.Text = "CAM4", .Size = New Size(60, 24)}
-    Private ReadOnly stopRouteButton As New Button() With {.Text = "Stop", .Size = New Size(60, 24)}
+    Private ReadOnly routeCam1Button As New Button() With {.Text = "1", .Size = New Size(32, 24)}
+    Private ReadOnly routeCam2Button As New Button() With {.Text = "2", .Size = New Size(32, 24)}
+    Private ReadOnly routeCam3Button As New Button() With {.Text = "3", .Size = New Size(32, 24)}
+    Private ReadOnly routeCam4Button As New Button() With {.Text = "4", .Size = New Size(32, 24)}
+    Private ReadOnly stopRouteButton As New Button() With {.Text = "Stop", .Size = New Size(42, 24)}
     Private WithEvents deckLinkRouter As PreviewFrameReader
     Private routingVideoPipeServer As NamedPipeServerStream
     Private routingAudioPipeServer As NamedPipeServerStream
