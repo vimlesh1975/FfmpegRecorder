@@ -3012,6 +3012,10 @@ Partial Public Class RecorderControl
         Return If(audioMonitorRunner IsNot Nothing, "Live preview and speaker monitoring active.", "Live preview active. Audio monitor reconnecting...")
     End Function
 
+    Public Sub UpdateRoutedPreview(frame As Bitmap)
+        ShowPreviewFrame(frame, "Routing to DeckLink...", Color.DarkOrange)
+    End Sub
+
     Private Sub ShowPreviewFrame(frame As Bitmap, stateText As String, stateColor As Color)
         If InvokeRequired Then
             BeginInvoke(New Action(Of Bitmap, String, Color)(AddressOf ShowPreviewFrame), frame, stateText, stateColor)

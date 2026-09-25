@@ -841,6 +841,9 @@ Partial Public Class RecorderHostForm
 
     Private Sub deckLinkRouter_FrameReady(frame As Bitmap) Handles deckLinkRouter.FrameReady
         deckLinkPlayerControl.UpdateRoutedPreview(frame)
+        If routedRecorderControl IsNot Nothing Then
+            routedRecorderControl.UpdateRoutedPreview(frame)
+        End If
     End Sub
 
     Private Sub deckLinkRouter_LogReceived(message As String) Handles deckLinkRouter.LogReceived
