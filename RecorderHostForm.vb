@@ -890,7 +890,7 @@ Partial Public Class RecorderHostForm
             If inputFormatCode.EndsWith("60") Then frameRate = "60"
         End If
         
-        Dim args = $"-y -hide_banner -loglevel quiet {inputArgs} -map 0:v -vf ""scale=960:-1"" -an -c:v mjpeg -q:v 6 -flush_packets 1 -f fifo -fifo_format mjpeg -drop_pkts_on_overflow 1 -attempt_recovery 1 \\.\pipe\{mjpegPipeName} -map 0:v -c:v rawvideo -pix_fmt uyvy422 -f fifo -fifo_format rawvideo -drop_pkts_on_overflow 1 -attempt_recovery 1 \\.\pipe\{videoPipeName} -map 0:a -c:a pcm_s16le -f fifo -fifo_format s16le -drop_pkts_on_overflow 1 -attempt_recovery 1 \\.\pipe\{audioPipeName}"
+        Dim args = $"-y -hide_banner -loglevel quiet {inputArgs} -map 0:v -vf ""scale=960:-1"" -an -c:v mjpeg -q:v 6 -flush_packets 1 -f fifo -fifo_format mjpeg -drop_pkts_on_overflow 1 -attempt_recovery 1 \\.\pipe\{mjpegPipeName} -map 0:v -c:v rawvideo -pix_fmt uyvy422 -f fifo -fifo_format rawvideo -drop_pkts_on_overflow 1 -attempt_recovery 1 \\.\pipe\{videoPipeName} -map 0:a -c:a pcm_s16le -ar 48000 -af aresample=async=1 -f fifo -fifo_format s16le -drop_pkts_on_overflow 1 -attempt_recovery 1 \\.\pipe\{audioPipeName}"
 
         deckLinkRouterRunner = New InProcessDeckLinkOutputRunner()
         deckLinkRouter = New PreviewFrameReader()
@@ -918,10 +918,6 @@ Partial Public Class RecorderHostForm
     End Sub
 
     Private Sub StopDeckLinkRouting()
-        If routedRecorderControl IsNot Nothing Then
-            routedRecorderControl.StartIdlePreview()
-            routedRecorderControl = Nothing
-        End If
 
         If deckLinkRouter IsNot Nothing Then
             deckLinkRouter.Stop()
@@ -939,6 +935,7 @@ Partial Public Class RecorderHostForm
             Try
                 If Not deckLinkRouterFfmpegProcess.HasExited Then
                     deckLinkRouterFfmpegProcess.Kill()
+                    deckLinkRouterFfmpegProcess.WaitForExit(1000)
                 End If
             Catch
             End Try
@@ -954,6 +951,11 @@ Partial Public Class RecorderHostForm
         If routingAudioPipeServer IsNot Nothing Then
             routingAudioPipeServer.Dispose()
             routingAudioPipeServer = Nothing
+        End If
+
+        If routedRecorderControl IsNot Nothing Then
+            routedRecorderControl.StartIdlePreview()
+            routedRecorderControl = Nothing
         End If
     End Sub
     
