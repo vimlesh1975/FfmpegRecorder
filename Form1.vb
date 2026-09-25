@@ -279,6 +279,15 @@ Partial Public Class RecorderControl
     Private ffmbcBackgroundFinalizeTask As Task(Of String)
 
     Public Event CpuUsageChanged As EventHandler(Of CpuUsageChangedEventArgs)
+    Public Event PreviewFrameReady As Action(Of Bitmap)
+
+    <Browsable(False)>
+    <DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)>
+    Public ReadOnly Property SelectedInputFormatCode As String
+        Get
+            Return GetSelectedDeckLinkFormatCode()
+        End Get
+    End Property
 
     <Browsable(True), DesignerSerializationVisibility(DesignerSerializationVisibility.Visible), DefaultValue("CAM1")>
     Public Property CameraName As String
@@ -299,6 +308,14 @@ Partial Public Class RecorderControl
         Set(value As String)
             settingsKeyValue = If(value, String.Empty).Trim()
         End Set
+    End Property
+
+    <Browsable(False), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)>
+    Public ReadOnly Property SelectedDeviceName As String
+        Get
+            Dim selectedItem = TryCast(deviceComboBox.SelectedItem, String)
+            Return If(String.IsNullOrWhiteSpace(selectedItem) OrElse String.Equals(selectedItem, NoDeckLinkSourceName, StringComparison.OrdinalIgnoreCase), String.Empty, selectedItem)
+        End Get
     End Property
 
     Public ReadOnly Property CurrentCpuUsagePercent As Double
@@ -2441,7 +2458,7 @@ Partial Public Class RecorderControl
         StartBackgroundFfmbcFinalization()
     End Sub
 
-    Private Sub StartIdlePreview()
+    Public Sub StartIdlePreview()
         If hasDisposedResources OrElse IsDisposed Then
             Return
         End If
@@ -2479,7 +2496,7 @@ Partial Public Class RecorderControl
         End Try
     End Sub
 
-    Private Sub StopIdlePreview(statusText As String, Optional fast As Boolean = False)
+    Public Sub StopIdlePreview(statusText As String, Optional fast As Boolean = False)
         If previewRunner Is Nothing Then
             previewStateLabel.Text = statusText
             previewStateLabel.ForeColor = Color.DarkOrange
@@ -2979,10 +2996,12 @@ Partial Public Class RecorderControl
 
     Private Sub previewRunner_FrameReady(frame As Bitmap) Handles previewRunner.FrameReady
         ShowPreviewFrame(frame, GetActivePreviewStateText(), Color.DarkGreen)
+        RaiseEvent PreviewFrameReady(frame)
     End Sub
 
     Private Sub recordingPreviewReader_FrameReady(frame As Bitmap) Handles recordingPreviewReader.FrameReady
         ShowPreviewFrame(frame, GetActivePreviewStateText(), Color.DarkGreen)
+        RaiseEvent PreviewFrameReady(frame)
     End Sub
 
     Private Function GetActivePreviewStateText() As String

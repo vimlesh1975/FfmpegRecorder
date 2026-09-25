@@ -278,6 +278,50 @@ Public Class DeckLinkPlayerControl
         End Set
     End Property
 
+    Public Sub UpdateRoutedPreview(frame As Bitmap)
+        If IsDisposed OrElse frame Is Nothing Then
+            Return
+        End If
+
+        If InvokeRequired Then
+            BeginInvoke(New Action(Of Bitmap)(AddressOf UpdateRoutedPreview), frame)
+            Return
+        End If
+
+        If isStoppingPreview OrElse isSeekingPlayback Then
+            Return
+        End If
+
+        Dim previousImage = previewPictureBox.Image
+        previewPictureBox.Image = CType(frame.Clone(), Image)
+        UpdateFullscreenPreviewImage(previewPictureBox.Image)
+        previewStateLabel.Visible = False
+
+        If previousImage IsNot Nothing Then
+            previousImage.Dispose()
+        End If
+
+        frame.Dispose()
+    End Sub
+
+    <Browsable(False)>
+    <DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)>
+    Public ReadOnly Property SelectedOutputDeviceName As String
+        Get
+            Dim selectedItem = TryCast(outputDeviceComboBox.SelectedItem, String)
+            Return If(String.IsNullOrWhiteSpace(selectedItem) OrElse String.Equals(selectedItem, NoDeckLinkOutputText, StringComparison.OrdinalIgnoreCase), String.Empty, selectedItem)
+        End Get
+    End Property
+
+    <Browsable(False)>
+    <DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)>
+    Public ReadOnly Property SelectedOutputModeFormatCode As String
+        Get
+            Dim selectedMode = TryCast(outputModeComboBox.SelectedItem, DeckLinkOutputMode)
+            Return If(selectedMode IsNot Nothing, selectedMode.FormatCode, String.Empty)
+        End Get
+    End Property
+
     <Browsable(False)>
     <DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)>
     Public Property SpeakerMonitorEnabled As Boolean
@@ -3753,7 +3797,7 @@ Public Class DeckLinkPlayerControl
         End Try
     End Function
 
-    Private Async Function StopPlaybackAsync(Optional clearImage As Boolean = False) As Task
+    Public Async Function StopPlaybackAsync(Optional clearImage As Boolean = False) As Task
         StopPlaybackClock()
         StopShuttlePlaybackTimer()
         scrubPreviewTimer.Stop()

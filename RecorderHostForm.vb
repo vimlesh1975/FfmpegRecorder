@@ -153,7 +153,6 @@ Partial Public Class RecorderHostForm
 
         leftSectionPanel.Controls.Add(BuildCommonSection("Setup", profileLabel, profileComboBox, recordingModeLabel, recordingModeComboBox, intervalLabel, intervalUpDown, inputModeLabel, inputModeComboBox, palAspectLabel, palAspectComboBox))
         leftSectionPanel.Controls.Add(BuildCommonSection("Recording", recordAllButton, stopAllButton, openRecordingsButton, deleteAllButton))
-        leftSectionPanel.Controls.Add(BuildCommonSection("Route to DeckLink", routeCam1Button, routeCam2Button, routeCam3Button, routeCam4Button, stopRouteButton))
         leftSectionPanel.Controls.Add(BuildCommonSection("Folder", recordingDirectoryPanel))
         leftSectionPanel.Controls.Add(BuildCommonSection("Audio", audioListenPanel))
         leftSectionPanel.Controls.Add(BuildCommonSection("View", darkModeCheckBox))
@@ -171,6 +170,28 @@ Partial Public Class RecorderHostForm
         cpuSectionPanel.Name = "cameraCpuPanel"
         cpuSectionPanel.Margin = New Padding(0, 0, 0, 8)
 
+        Dim routeSectionPanel = BuildCommonSection(
+            "Route to DeckLink",
+            routeCam1Button,
+            routeCam2Button,
+            routeCam3Button,
+            routeCam4Button,
+            stopRouteButton)
+        routeSectionPanel.Name = "routePanel"
+        routeSectionPanel.Margin = New Padding(0, 0, 0, 8)
+
+        Dim bottomLeftPanel As New FlowLayoutPanel() With {
+            .AutoSize = True,
+            .AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            .FlowDirection = FlowDirection.LeftToRight,
+            .Dock = DockStyle.Fill,
+            .Margin = New Padding(0),
+            .Padding = New Padding(0),
+            .WrapContents = True
+        }
+        bottomLeftPanel.Controls.Add(cpuSectionPanel)
+        bottomLeftPanel.Controls.Add(routeSectionPanel)
+
         Dim rightSectionPanel As New FlowLayoutPanel() With {
             .AutoSize = True,
             .AutoSizeMode = AutoSizeMode.GrowAndShrink,
@@ -185,7 +206,7 @@ Partial Public Class RecorderHostForm
 
         commonPanel.Controls.Add(leftSectionPanel, 0, 0)
         commonPanel.Controls.Add(rightSectionPanel, 1, 0)
-        commonPanel.Controls.Add(cpuSectionPanel, 0, 1)
+        commonPanel.Controls.Add(bottomLeftPanel, 0, 1)
         commonPanel.SetRowSpan(rightSectionPanel, 2)
 
         commonPanel.ResumeLayout(True)
@@ -869,7 +890,7 @@ Partial Public Class RecorderHostForm
             If inputFormatCode.EndsWith("60") Then frameRate = "60"
         End If
         
-        Dim args = $"-hide_banner -loglevel quiet {inputArgs} -map 0:v -vf ""scale=960:-1"" -an -c:v mjpeg -q:v 6 -flush_packets 1 -f mjpeg \\.\pipe\{mjpegPipeName} -map 0:v -c:v rawvideo -pix_fmt uyvy422 -f rawvideo \\.\pipe\{videoPipeName} -map 0:a -c:a pcm_s16le -f s16le \\.\pipe\{audioPipeName}"
+        Dim args = $"-y -hide_banner -loglevel quiet {inputArgs} -map 0:v -vf ""scale=960:-1"" -an -c:v mjpeg -q:v 6 -flush_packets 1 -f fifo -fifo_format mjpeg -drop_pkts_on_overflow 1 -attempt_recovery 1 \\.\pipe\{mjpegPipeName} -map 0:v -c:v rawvideo -pix_fmt uyvy422 -f fifo -fifo_format rawvideo -drop_pkts_on_overflow 1 -attempt_recovery 1 \\.\pipe\{videoPipeName} -map 0:a -c:a pcm_s16le -f fifo -fifo_format s16le -drop_pkts_on_overflow 1 -attempt_recovery 1 \\.\pipe\{audioPipeName}"
 
         deckLinkRouterRunner = New InProcessDeckLinkOutputRunner()
         deckLinkRouter = New PreviewFrameReader()
