@@ -233,11 +233,11 @@ Friend Class RecorderOptions
     End Function
 
     Private Function GetMeterChannelWidth(previewWidth As Integer) As Integer
-        Return 80
+        Return 96
     End Function
 
     Private Function GetMeterOutputWidth(previewWidth As Integer) As Integer
-        Return Math.Max(20, GetMeterChannelWidth(previewWidth) \ 4)
+        Return 30
     End Function
 
     Private Function GetRightMeterPanExpression() As String

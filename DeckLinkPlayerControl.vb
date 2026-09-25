@@ -3889,7 +3889,7 @@ Public Class DeckLinkPlayerControl
     End Function
 
     Private Shared Function BuildPreviewArguments(filePath As String, hasAudioStream As Boolean, startOffset As TimeSpan, playbackSpeed As Double, isLooping As Boolean) As String
-        Dim previewWidth = 900
+        Dim previewWidth = 960
         Dim previewHeight = 540
         Dim meterChannelWidth = 96
         Dim meterOutputWidth = 30

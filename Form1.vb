@@ -82,7 +82,7 @@ Partial Public Class RecorderControl
 
     Private Const PreviewWidth As Integer = 360
     Private Const PreviewHeight As Integer = 202
-    Private Const PreviewMeterWidth As Integer = 20
+    Private Const PreviewMeterWidth As Integer = 30
     Private Const PreviewCompositeWidth As Integer = PreviewWidth + (PreviewMeterWidth * 2)
     Private Const PreviewFrameRate As Integer = 10
     Private Const LogHeight As Integer = 56
