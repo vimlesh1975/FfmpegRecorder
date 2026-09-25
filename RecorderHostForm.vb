@@ -869,7 +869,7 @@ Partial Public Class RecorderHostForm
         StopDeckLinkRouting()
 
         routedRecorderControl = recorderControl
-        routedRecorderControl.StopIdlePreview("Routing to DeckLink...", fast:=True)
+        routedRecorderControl.StopIdlePreview("Routing to DeckLink...", fast:=False)
 
         Dim inputFormatCode = recorderControl.SelectedInputFormatCode
         Dim isInterlaced = If(String.IsNullOrWhiteSpace(inputFormatCode), False, inputFormatCode.EndsWith("i50", StringComparison.OrdinalIgnoreCase) OrElse inputFormatCode.EndsWith("i5994", StringComparison.OrdinalIgnoreCase) OrElse inputFormatCode.EndsWith("i60", StringComparison.OrdinalIgnoreCase))
@@ -900,7 +900,8 @@ Partial Public Class RecorderHostForm
             .Arguments = args,
             .WorkingDirectory = AppContext.BaseDirectory,
             .UseShellExecute = False,
-            .CreateNoWindow = True
+            .CreateNoWindow = True,
+            .RedirectStandardInput = True
         }
         deckLinkRouterFfmpegProcess = New Process() With { .StartInfo = startInfo }
         deckLinkRouterFfmpegProcess.Start()
@@ -934,8 +935,11 @@ Partial Public Class RecorderHostForm
         If deckLinkRouterFfmpegProcess IsNot Nothing Then
             Try
                 If Not deckLinkRouterFfmpegProcess.HasExited Then
-                    deckLinkRouterFfmpegProcess.Kill()
-                    deckLinkRouterFfmpegProcess.WaitForExit(1000)
+                    deckLinkRouterFfmpegProcess.StandardInput.WriteLine("q")
+                    If Not deckLinkRouterFfmpegProcess.WaitForExit(2500) Then
+                        deckLinkRouterFfmpegProcess.Kill()
+                        deckLinkRouterFfmpegProcess.WaitForExit(1000)
+                    End If
                 End If
             Catch
             End Try

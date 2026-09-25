@@ -533,7 +533,7 @@ Partial Public Class RecorderControl
             End If
 
             If captureRunner Is Nothing Then
-                StopIdlePreview("Updating audio listen...", fast:=True)
+                StopIdlePreview("Updating audio listen...", fast:=False)
                 StartIdlePreview()
                 Return
             End If
@@ -1642,9 +1642,9 @@ Partial Public Class RecorderControl
 
         If captureRunner Is Nothing Then
             If String.Equals(targetDeviceName, NoDeckLinkSourceName, StringComparison.OrdinalIgnoreCase) Then
-                StopIdlePreview("Source set to None.", fast:=True)
+                StopIdlePreview("Source set to None.", fast:=False)
             Else
-                StopIdlePreview("Switching device...", fast:=True)
+                StopIdlePreview("Switching device...", fast:=False)
                 StartIdlePreview()
             End If
         End If
@@ -1797,7 +1797,7 @@ Partial Public Class RecorderControl
         End If
 
         TearDownAudioMonitor(fast:=True)
-        StopIdlePreview(statusMessage, fast:=True)
+        StopIdlePreview(statusMessage, fast:=False)
 
         If deckLinkInputAvailableValue Then
             StartIdlePreview()
@@ -1848,7 +1848,7 @@ Partial Public Class RecorderControl
                 TearDownAudioMonitor(fast:=True)
                 savedDeviceName = GetSelectedDeviceName()
                 SaveOperatorSettings()
-                StopIdlePreview("Source set to None.", fast:=True)
+                StopIdlePreview("Source set to None.", fast:=False)
                 UpdateStaticInfo()
                 Return
             End If
@@ -1874,7 +1874,7 @@ Partial Public Class RecorderControl
         End If
 
         TearDownAudioMonitor(fast:=True)
-        StopIdlePreview("Switching device...", fast:=True)
+        StopIdlePreview("Switching device...", fast:=False)
         StartIdlePreview()
     End Sub
 
@@ -2625,7 +2625,7 @@ Partial Public Class RecorderControl
         End If
 
         Directory.CreateDirectory(recordingOptions.OutputFolder)
-        StopIdlePreview("Switching to recording preview...", fast:=True)
+        StopIdlePreview("Switching to recording preview...", fast:=False)
 
         Dim outputPathOrPattern = If(recordingOptions.UseIntervalSegments, recordingOptions.BuildOutputPattern(), recordingOptions.BuildUniqueOutputPath())
         Dim arguments = recordingOptions.BuildRecordingWithPreviewArguments(outputPathOrPattern, previewPort, If(hasAudioMonitor, audioMonitorPort, 0), PreviewWidth, PreviewFrameRate)
