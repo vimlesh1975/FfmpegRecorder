@@ -895,7 +895,7 @@ Partial Public Class RecorderHostForm
             If inputFormatCode.EndsWith("60") Then frameRate = "60"
         End If
         
-        Dim args = $"-y -hide_banner -loglevel quiet {inputArgs} -map 0:v -vf ""scale=960:-1"" -an -c:v mjpeg -q:v 6 -flush_packets 1 -f fifo -fifo_format mjpeg -drop_pkts_on_overflow 1 -attempt_recovery 1 \\.\pipe\{mjpegPipeName} -map 0:v -c:v rawvideo -pix_fmt uyvy422 -f fifo -fifo_format rawvideo -drop_pkts_on_overflow 1 -attempt_recovery 1 \\.\pipe\{videoPipeName} -map 0:a -c:a pcm_s16le -ac 2 -ar 48000 -af aresample=async=1 -f fifo -fifo_format s16le -drop_pkts_on_overflow 1 -attempt_recovery 1 \\.\pipe\{audioPipeName}"
+        Dim args = $"-y -hide_banner -loglevel quiet {inputArgs} -map 0:v -vf ""scale=960:-1"" -an -c:v mjpeg -q:v 6 -flush_packets 1 -f fifo -fifo_format mjpeg -drop_pkts_on_overflow 1 -attempt_recovery 1 \\.\pipe\{mjpegPipeName} -map 0:v -c:v rawvideo -pix_fmt uyvy422 -f fifo -fifo_format rawvideo -drop_pkts_on_overflow 1 -attempt_recovery 1 \\.\pipe\{videoPipeName} -map 0:a -c:a pcm_s32le -ac 2 -ar 48000 -af aresample=async=1 -f fifo -fifo_format s32le -drop_pkts_on_overflow 1 -attempt_recovery 1 \\.\pipe\{audioPipeName}"
 
         deckLinkRouterRunner = New InProcessDeckLinkOutputRunner()
         deckLinkRouter = New PreviewFrameReader()
