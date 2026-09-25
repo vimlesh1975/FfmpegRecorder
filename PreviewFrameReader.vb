@@ -119,6 +119,7 @@ Friend Class PreviewFrameReader
 
                 If Not process.WaitForExit(2500) Then
                     process.Kill(True)
+                    process.WaitForExit(1000)
                 End If
             End If
 
@@ -135,6 +136,7 @@ Friend Class PreviewFrameReader
             Try
                 If process IsNot Nothing AndAlso Not process.HasExited Then
                     process.Kill(True)
+                    process.WaitForExit(1000)
                 End If
             Catch
             End Try
@@ -274,6 +276,7 @@ Friend Class PreviewFrameReader
         Try
             If Not process.HasExited Then
                 process.Kill(True)
+                process.WaitForExit(1000)
             End If
         Catch
         End Try
