@@ -219,7 +219,11 @@ Friend Class PreviewFrameReader
         Try
             Using memory As New MemoryStream(frameBytes)
                 Using sourceImage As Image = Image.FromStream(memory)
-                    RaiseEvent FrameReady(New Bitmap(sourceImage))
+                    Dim standaloneBitmap As New Bitmap(sourceImage.Width, sourceImage.Height, sourceImage.PixelFormat)
+                    Using g As Graphics = Graphics.FromImage(standaloneBitmap)
+                        g.DrawImage(sourceImage, 0, 0, sourceImage.Width, sourceImage.Height)
+                    End Using
+                    RaiseEvent FrameReady(standaloneBitmap)
                 End Using
             End Using
         Catch
