@@ -57,6 +57,12 @@ Friend NotInheritable Class InProcessDeckLinkOutputRunner
 
     Public Event LogReceived(message As String)
     Public Event Exited(exitCode As Integer)
+
+    Private routingVideoPipe As Stream
+    Private routingAudioPipe As Stream
+    Private routingSkipFrames As Integer = 0
+    Private ReadOnly routingStreamLock As New Object()
+
     Public Event PlaybackEnded(exitCode As Integer)
 
     Public Async Function DisplayScrubFrameAsync(ffmpegPath As String, filePath As String, deviceName As String, formatCode As String, width As Integer, height As Integer, frameRate As String, isInterlaced As Boolean, startOffset As TimeSpan, cancellationToken As CancellationToken) As Task
@@ -232,8 +238,25 @@ Friend NotInheritable Class InProcessDeckLinkOutputRunner
             End Sub)
     End Function
 
+    Public Sub SwapRoutingStreams(videoStream As Stream, audioStream As Stream)
+        SyncLock routingStreamLock
+            routingVideoPipe = videoStream
+            routingAudioPipe = audioStream
+            routingSkipFrames = 15 ' Skip ~0.6s of frames to avoid DeckLink signal-lock colorbars
+        End SyncLock
+    End Sub
+
+    Public ReadOnly Property IsLiveRoutingActive As Boolean
+        Get
+            SyncLock lifecycleLock
+                Return playbackTask IsNot Nothing
+            End SyncLock
+        End Get
+    End Property
+
     Public Async Function StartLiveRoutingAsync(videoStream As Stream, audioStream As Stream, deviceName As String, formatCode As String, width As Integer, height As Integer, frameRate As String) As Task
         ThrowIfDisposed()
+        SwapRoutingStreams(videoStream, audioStream)
 
         Await Task.Run(
             Sub()
@@ -265,7 +288,7 @@ Friend NotInheritable Class InProcessDeckLinkOutputRunner
                         Dim activeTimeScale = outputTimeScale
                         playbackTask = Task.Run(
                             Async Function()
-                                Await RunPlaybackStreamsAsync(tokenSource, videoStream, audioStream, activeOutput, activeWidth, activeHeight, activeRowBytes, activeFrameBytes, activeFrameDuration, activeTimeScale)
+                                Await RunPlaybackStreamsAsync(tokenSource, activeOutput, activeWidth, activeHeight, activeRowBytes, activeFrameBytes, activeFrameDuration, activeTimeScale)
                             End Function)
                     End SyncLock
                 Catch
@@ -391,29 +414,77 @@ Friend NotInheritable Class InProcessDeckLinkOutputRunner
         End If
     End Function
 
-    Private Async Function RunPlaybackStreamsAsync(tokenSource As CancellationTokenSource, videoStream As Stream, audioStream As Stream, activeOutput As IDeckLinkOutput_v14_2_1, width As Integer, height As Integer, rowBytes As Integer, frameBytes As Integer, frameDuration As Long, timeScale As Long) As Task
+    Private Async Function RunPlaybackStreamsAsync(tokenSource As CancellationTokenSource, activeOutput As IDeckLinkOutput_v14_2_1, width As Integer, height As Integer, rowBytes As Integer, frameBytes As Integer, frameDuration As Long, timeScale As Long) As Task
         Dim token = tokenSource.Token
         Dim audioPumpTask As Task = Nothing
 
         Try
-            If audioStream IsNot Nothing Then
-                audioPumpTask = Task.Run(
-                    Async Function()
-                        Await PumpAudioAsync(activeOutput, audioStream, token)
-                    End Function)
-            End If
+            audioPumpTask = Task.Run(
+                Async Function()
+                    Await PumpAudioAsync(activeOutput, Nothing, token)
+                End Function)
 
+            Dim latestFrameBuffer(frameBytes - 1) As Byte
             Dim frameBuffer(frameBytes - 1) As Byte
+            
+            ' Initialize to UYVY black (U=128, Y=16, V=128, Y=16)
+            For i = 0 To frameBytes - 1 Step 4
+                latestFrameBuffer(i) = &H80
+                latestFrameBuffer(i + 1) = &H10
+                latestFrameBuffer(i + 2) = &H80
+                latestFrameBuffer(i + 3) = &H10
+            Next
+
+            Dim latestFrameLock As New Object()
+
+            Dim readerTask = Task.Run(
+                Async Function()
+                    Dim localBuffer(frameBytes - 1) As Byte
+                    While Not token.IsCancellationRequested
+                        Dim currentVideo As Stream = Nothing
+                        SyncLock routingStreamLock
+                            currentVideo = routingVideoPipe
+                        End SyncLock
+
+                        Dim gotFrame = False
+                        If currentVideo IsNot Nothing Then
+                            Try
+                                gotFrame = Await ReadExactFrameAsync(currentVideo, localBuffer, token)
+                            Catch
+                            End Try
+                        End If
+
+                        If gotFrame Then
+                            SyncLock latestFrameLock
+                                Dim skip = False
+                                SyncLock routingStreamLock
+                                    If routingSkipFrames > 0 Then
+                                        routingSkipFrames -= 1
+                                        skip = True
+                                    End If
+                                End SyncLock
+
+                                If Not skip Then
+                                    Array.Copy(localBuffer, latestFrameBuffer, frameBytes)
+                                End If
+                            End SyncLock
+                        Else
+                            Await Task.Delay(10, token)
+                        End If
+                    End While
+                End Function)
+
             Dim frameNumber = 0L
             Dim playbackStopwatch = Stopwatch.StartNew()
             Dim frameTicks = Math.Max(1L, Stopwatch.Frequency * frameDuration \ Math.Max(1L, timeScale))
 
             While Not token.IsCancellationRequested
-                If Not Await ReadExactFrameAsync(videoStream, frameBuffer, token) Then
-                    Exit While
-                End If
+                SyncLock latestFrameLock
+                    Array.Copy(latestFrameBuffer, frameBuffer, frameBytes)
+                End SyncLock
 
                 DisplayRawFrame(activeOutput, frameBuffer, width, height, rowBytes, frameBytes)
+                
                 frameNumber += 1
 
                 If frameNumber Mod 100 = 0 Then
@@ -1024,10 +1095,25 @@ Friend NotInheritable Class InProcessDeckLinkOutputRunner
 
         Try
             While Not cancellationToken.IsCancellationRequested
-                Dim bytesRead = Await ReadAlignedAudioBlockAsync(audioStream, managedBuffer, bytesPerSampleFrame, cancellationToken)
+                Dim currentAudio As Stream = audioStream
+                If currentAudio Is Nothing Then
+                    SyncLock routingStreamLock
+                        currentAudio = routingAudioPipe
+                    End SyncLock
+                End If
+
+                Dim bytesRead = 0
+                If currentAudio IsNot Nothing Then
+                    Try
+                        bytesRead = Await ReadAlignedAudioBlockAsync(currentAudio, managedBuffer, bytesPerSampleFrame, cancellationToken)
+                    Catch
+                    End Try
+                End If
 
                 If bytesRead <= 0 Then
-                    Exit While
+                    bytesRead = managedBuffer.Length
+                    Array.Clear(managedBuffer, 0, managedBuffer.Length)
+                    Await Task.Delay(CInt(Math.Ceiling(AudioChunkSampleFrames * 1000.0 / AudioSampleRate)), cancellationToken)
                 End If
 
                 Dim sampleFrameCount = bytesRead \ bytesPerSampleFrame

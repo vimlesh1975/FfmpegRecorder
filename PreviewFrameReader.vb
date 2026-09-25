@@ -12,6 +12,8 @@ Friend Class PreviewFrameReader
     Private ReadOnly syncRoot As New Object()
     Private streamCancellation As CancellationTokenSource
 
+    Public Property SkipFrames As Integer = 0
+
     Public Event FrameReady(frame As Bitmap)
     Public Event LogReceived(message As String)
     Public Event Exited(exitCode As Integer)
@@ -216,6 +218,11 @@ Friend Class PreviewFrameReader
     End Function
 
     Private Sub RaiseFrame(frameBytes As Byte())
+        If SkipFrames > 0 Then
+            SkipFrames -= 1
+            Return
+        End If
+
         Try
             Using memory As New MemoryStream(frameBytes)
                 Using sourceImage As Image = Image.FromStream(memory)

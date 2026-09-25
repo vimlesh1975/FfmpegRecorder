@@ -879,8 +879,32 @@ Partial Public Class RecorderHostForm
             Return
         End If
 
-        Await deckLinkPlayerControl.StopPlaybackAsync(False)
-        StopDeckLinkRouting()
+        ' If the same camera is already being routed and the runner is active, do nothing
+        If recorderControl Is routedRecorderControl AndAlso
+           deckLinkRouterRunner IsNot Nothing AndAlso
+           deckLinkRouterRunner.IsLiveRoutingActive Then
+            Return
+        End If
+
+        Dim oldFfmpegProcess = deckLinkRouterFfmpegProcess
+        Dim oldVideoPipe = routingVideoPipeServer
+        Dim oldAudioPipe = routingAudioPipeServer
+        Dim oldRouter = deckLinkRouter
+
+        If deckLinkRouterRunner Is Nothing OrElse Not deckLinkRouterRunner.IsLiveRoutingActive Then
+            Await deckLinkPlayerControl.StopPlaybackAsync(False)
+            If deckLinkRouterRunner IsNot Nothing Then
+                deckLinkRouterRunner.Stop()
+                deckLinkRouterRunner.Dispose()
+                deckLinkRouterRunner = Nothing
+            End If
+        End If
+
+        Dim oldRoutedControl = routedRecorderControl
+
+        If oldRoutedControl IsNot Nothing AndAlso Not ReferenceEquals(oldRoutedControl, recorderControl) Then
+            oldRoutedControl.StopIdlePreview("Routing to DeckLink...", fast:=False)
+        End If
 
         routedRecorderControl = recorderControl
         routedRecorderControl.StopIdlePreview("Routing to DeckLink...", fast:=False)
@@ -908,8 +932,17 @@ Partial Public Class RecorderHostForm
         Dim filterGraph = $"[0:v]scale=960:540:force_original_aspect_ratio=decrease,pad=960:540:(ow-iw)/2:(oh-ih)/2,fps={previewFps},format=yuv420p[video];[0:a]aresample=48000,pan=stereo|c0=c0|c1=c1[input_a];[input_a]asplit=2[left_meter_src][right_meter_src];[left_meter_src]pan=mono|c0=c0,showvolume=r={previewFps}:w=96:h=540:f=0.92:b=2:t=0:v=1:dm=1:o=v:ds=log:p=0.18:m=r[left_bar_src];[left_bar_src]scale=30:540,format=yuv420p[left_bar];[right_meter_src]pan=mono|c0=c1,showvolume=r={previewFps}:w=96:h=540:f=0.92:b=2:t=0:v=1:dm=1:o=v:ds=log:p=0.18:m=r[right_bar_src];[right_bar_src]scale=30:540,format=yuv420p[right_bar];[left_bar][video][right_bar]hstack=inputs=3[preview]"
         Dim args = $"-y -hide_banner -loglevel quiet {inputArgs} -filter_complex ""{filterGraph}"" -map ""[preview]"" -an -c:v mjpeg -q:v 6 -flush_packets 1 -f fifo -fifo_format mjpeg -drop_pkts_on_overflow 1 -attempt_recovery 1 \\.\pipe\{mjpegPipeName} -map 0:v -c:v rawvideo -pix_fmt uyvy422 -f fifo -fifo_format rawvideo -drop_pkts_on_overflow 1 -attempt_recovery 1 \\.\pipe\{videoPipeName} -map 0:a -c:a pcm_s32le -ac 2 -ar 48000 -af aresample=async=1 -f fifo -fifo_format s32le -drop_pkts_on_overflow 1 -attempt_recovery 1 \\.\pipe\{audioPipeName}"
 
-        deckLinkRouterRunner = New InProcessDeckLinkOutputRunner()
-        deckLinkRouter = New PreviewFrameReader()
+        If deckLinkRouterRunner Is Nothing Then
+            deckLinkRouterRunner = New InProcessDeckLinkOutputRunner()
+        End If
+        
+        ' Build new router locally — do NOT assign to deckLinkRouter yet.
+        ' The WithEvents reassignment disconnects the FrameReady handler immediately,
+        ' causing a GUI blackout until the new stream connects. Instead we hold it locally
+        ' and atomically swap on the UI thread only after the new stream is confirmed live.
+        Dim newRouterLocal = New PreviewFrameReader() With {
+            .SkipFrames = 5
+        }
 
         Dim startInfo As New ProcessStartInfo() With {
             .FileName = Path.Combine(AppContext.BaseDirectory, "ffmpeg.exe"),
@@ -926,12 +959,100 @@ Partial Public Class RecorderHostForm
         Dim connectMjpegTask = mjpegPipeServer.WaitForConnectionAsync()
         Dim connectAudioTask = routingAudioPipeServer.WaitForConnectionAsync()
 
-        Task.WhenAll(connectVideoTask, connectMjpegTask, connectAudioTask).ContinueWith(
-            Sub(t)
-                If t.IsFaulted OrElse t.IsCanceled Then Return
-                deckLinkRouter.StartFromStream(mjpegPipeServer)
-                deckLinkRouterRunner.StartLiveRoutingAsync(routingVideoPipeServer, routingAudioPipeServer, outputDevice, formatCode, 1920, 1080, frameRate)
-            End Sub)
+        Dim isRunnerAlreadyActive = deckLinkRouterRunner.IsLiveRoutingActive
+        Dim newProcess = deckLinkRouterFfmpegProcess
+        Dim newVideoPipe = routingVideoPipeServer
+        Dim newAudioPipe = routingAudioPipeServer
+        Dim newMjpegPipe = mjpegPipeServer
+        Dim newRouter = newRouterLocal
+        Dim newRecorderControl = recorderControl
+
+        Task.Run(
+            Async Function()
+                Dim timeoutTask = Task.Delay(8000) ' 8s timeout for FFmpeg to connect
+                Dim connectAll = Task.WhenAll(connectVideoTask, connectMjpegTask, connectAudioTask)
+                Dim winner = Await Task.WhenAny(connectAll, timeoutTask)
+
+                Dim failed = winner Is timeoutTask OrElse connectAll.IsFaulted OrElse
+                             connectAll.IsCanceled OrElse newProcess.HasExited
+
+                If failed Then
+                    ' New camera has no valid input — roll back to old state, clean up new resources
+                    Try
+                        If Not newProcess.HasExited Then
+                            newProcess.StandardInput.WriteLine("q")
+                            If Not newProcess.WaitForExit(1000) Then newProcess.Kill()
+                        End If
+                    Catch
+                    End Try
+                    newProcess.Dispose()
+                    newRouter.Stop()
+                    newRouter.Dispose()
+                    newVideoPipe.Dispose()
+                    newAudioPipe.Dispose()
+
+                    Me.Invoke(Sub()
+                                  ' Restore UI — re-start idle preview on the failed camera
+                                  If Not newRecorderControl.IsDisposed Then
+                                      newRecorderControl.StartIdlePreview()
+                                  End If
+                                  ' If we abandoned a previously routed camera, restore it too
+                                  If routedRecorderControl Is newRecorderControl Then
+                                      routedRecorderControl = oldRoutedControl
+                                  End If
+                              End Sub)
+
+                    ' If there was a prior working camera, restore its routing
+                    If isRunnerAlreadyActive Then
+                        If oldFfmpegProcess IsNot Nothing AndAlso Not oldFfmpegProcess.HasExited Then
+                            ' Old process is still alive — swap back to old pipes
+                            If oldVideoPipe IsNot Nothing AndAlso oldAudioPipe IsNot Nothing Then
+                                deckLinkRouterRunner.SwapRoutingStreams(oldVideoPipe, oldAudioPipe)
+                            End If
+                        End If
+                    End If
+                    Return
+                End If
+
+                ' Success — swap the router on the UI thread first (atomic, no gap)
+                Me.Invoke(Sub()
+                              deckLinkRouter = newRouter
+                          End Sub)
+                newRouter.StartFromStream(newMjpegPipe)
+                If isRunnerAlreadyActive Then
+                    deckLinkRouterRunner.SwapRoutingStreams(newVideoPipe, newAudioPipe)
+                Else
+                    deckLinkRouterRunner.StartLiveRoutingAsync(newVideoPipe, newAudioPipe, outputDevice, formatCode, 1920, 1080, frameRate)
+                End If
+
+                ' Kill old process now that new one is confirmed live
+                If oldFfmpegProcess IsNot Nothing Then
+                    Try
+                        If Not oldFfmpegProcess.HasExited Then
+                            oldFfmpegProcess.StandardInput.WriteLine("q")
+                            If Not oldFfmpegProcess.WaitForExit(1000) Then oldFfmpegProcess.Kill()
+                        End If
+                    Catch
+                    End Try
+                    oldFfmpegProcess.Dispose()
+                End If
+
+                If oldRoutedControl IsNot Nothing Then
+                    Me.Invoke(Sub()
+                                  If Not oldRoutedControl.IsDisposed Then
+                                      oldRoutedControl.StartIdlePreview()
+                                  End If
+                              End Sub)
+                End If
+
+                If oldRouter IsNot Nothing Then
+                    oldRouter.Stop()
+                    oldRouter.Dispose()
+                End If
+
+                If oldVideoPipe IsNot Nothing Then oldVideoPipe.Dispose()
+                If oldAudioPipe IsNot Nothing Then oldAudioPipe.Dispose()
+            End Function)
     End Sub
 
     Private Sub StopDeckLinkRouting()
