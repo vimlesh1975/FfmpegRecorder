@@ -82,7 +82,7 @@ Partial Public Class RecorderControl
 
     Private Const PreviewWidth As Integer = 360
     Private Const PreviewHeight As Integer = 202
-    Private Const PreviewMeterWidth As Integer = 30
+    Private Const PreviewMeterWidth As Integer = 20
     Private Const PreviewCompositeWidth As Integer = PreviewWidth + (PreviewMeterWidth * 2)
     Private Const PreviewFrameRate As Integer = 10
     Private Const LogHeight As Integer = 56
@@ -279,15 +279,6 @@ Partial Public Class RecorderControl
     Private ffmbcBackgroundFinalizeTask As Task(Of String)
 
     Public Event CpuUsageChanged As EventHandler(Of CpuUsageChangedEventArgs)
-    Public Event PreviewFrameReady As Action(Of Bitmap)
-
-    <Browsable(False)>
-    <DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)>
-    Public ReadOnly Property SelectedInputFormatCode As String
-        Get
-            Return GetSelectedDeckLinkFormatCode()
-        End Get
-    End Property
 
     <Browsable(True), DesignerSerializationVisibility(DesignerSerializationVisibility.Visible), DefaultValue("CAM1")>
     Public Property CameraName As String
@@ -308,14 +299,6 @@ Partial Public Class RecorderControl
         Set(value As String)
             settingsKeyValue = If(value, String.Empty).Trim()
         End Set
-    End Property
-
-    <Browsable(False), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)>
-    Public ReadOnly Property SelectedDeviceName As String
-        Get
-            Dim selectedItem = TryCast(deviceComboBox.SelectedItem, String)
-            Return If(String.IsNullOrWhiteSpace(selectedItem) OrElse String.Equals(selectedItem, NoDeckLinkSourceName, StringComparison.OrdinalIgnoreCase), String.Empty, selectedItem)
-        End Get
     End Property
 
     Public ReadOnly Property CurrentCpuUsagePercent As Double
@@ -533,7 +516,7 @@ Partial Public Class RecorderControl
             End If
 
             If captureRunner Is Nothing Then
-                StopIdlePreview("Updating audio listen...", fast:=False)
+                StopIdlePreview("Updating audio listen...", fast:=True)
                 StartIdlePreview()
                 Return
             End If
@@ -1642,9 +1625,9 @@ Partial Public Class RecorderControl
 
         If captureRunner Is Nothing Then
             If String.Equals(targetDeviceName, NoDeckLinkSourceName, StringComparison.OrdinalIgnoreCase) Then
-                StopIdlePreview("Source set to None.", fast:=False)
+                StopIdlePreview("Source set to None.", fast:=True)
             Else
-                StopIdlePreview("Switching device...", fast:=False)
+                StopIdlePreview("Switching device...", fast:=True)
                 StartIdlePreview()
             End If
         End If
@@ -1797,7 +1780,7 @@ Partial Public Class RecorderControl
         End If
 
         TearDownAudioMonitor(fast:=True)
-        StopIdlePreview(statusMessage, fast:=False)
+        StopIdlePreview(statusMessage, fast:=True)
 
         If deckLinkInputAvailableValue Then
             StartIdlePreview()
@@ -1848,7 +1831,7 @@ Partial Public Class RecorderControl
                 TearDownAudioMonitor(fast:=True)
                 savedDeviceName = GetSelectedDeviceName()
                 SaveOperatorSettings()
-                StopIdlePreview("Source set to None.", fast:=False)
+                StopIdlePreview("Source set to None.", fast:=True)
                 UpdateStaticInfo()
                 Return
             End If
@@ -1874,7 +1857,7 @@ Partial Public Class RecorderControl
         End If
 
         TearDownAudioMonitor(fast:=True)
-        StopIdlePreview("Switching device...", fast:=False)
+        StopIdlePreview("Switching device...", fast:=True)
         StartIdlePreview()
     End Sub
 
@@ -2458,7 +2441,7 @@ Partial Public Class RecorderControl
         StartBackgroundFfmbcFinalization()
     End Sub
 
-    Public Sub StartIdlePreview()
+    Private Sub StartIdlePreview()
         If hasDisposedResources OrElse IsDisposed Then
             Return
         End If
@@ -2496,7 +2479,7 @@ Partial Public Class RecorderControl
         End Try
     End Sub
 
-    Public Sub StopIdlePreview(statusText As String, Optional fast As Boolean = False)
+    Private Sub StopIdlePreview(statusText As String, Optional fast As Boolean = False)
         If previewRunner Is Nothing Then
             previewStateLabel.Text = statusText
             previewStateLabel.ForeColor = Color.DarkOrange
@@ -2625,7 +2608,7 @@ Partial Public Class RecorderControl
         End If
 
         Directory.CreateDirectory(recordingOptions.OutputFolder)
-        StopIdlePreview("Switching to recording preview...", fast:=False)
+        StopIdlePreview("Switching to recording preview...", fast:=True)
 
         Dim outputPathOrPattern = If(recordingOptions.UseIntervalSegments, recordingOptions.BuildOutputPattern(), recordingOptions.BuildUniqueOutputPath())
         Dim arguments = recordingOptions.BuildRecordingWithPreviewArguments(outputPathOrPattern, previewPort, If(hasAudioMonitor, audioMonitorPort, 0), PreviewWidth, PreviewFrameRate)
@@ -2996,12 +2979,10 @@ Partial Public Class RecorderControl
 
     Private Sub previewRunner_FrameReady(frame As Bitmap) Handles previewRunner.FrameReady
         ShowPreviewFrame(frame, GetActivePreviewStateText(), Color.DarkGreen)
-        RaiseEvent PreviewFrameReady(frame)
     End Sub
 
     Private Sub recordingPreviewReader_FrameReady(frame As Bitmap) Handles recordingPreviewReader.FrameReady
         ShowPreviewFrame(frame, GetActivePreviewStateText(), Color.DarkGreen)
-        RaiseEvent PreviewFrameReady(frame)
     End Sub
 
     Private Function GetActivePreviewStateText() As String
@@ -3011,10 +2992,6 @@ Partial Public Class RecorderControl
 
         Return If(audioMonitorRunner IsNot Nothing, "Live preview and speaker monitoring active.", "Live preview active. Audio monitor reconnecting...")
     End Function
-
-    Public Sub UpdateRoutedPreview(frame As Bitmap)
-        ShowPreviewFrame(frame, "Routing to DeckLink...", Color.DarkOrange)
-    End Sub
 
     Private Sub ShowPreviewFrame(frame As Bitmap, stateText As String, stateColor As Color)
         If InvokeRequired Then

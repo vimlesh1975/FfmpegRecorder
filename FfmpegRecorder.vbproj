@@ -44,13 +44,11 @@
       <DeckLinkPlayerHelperArtifacts Include="$(TargetDir)decklinkplayer.deps.json" />
       <DeckLinkPlayerHelperArtifacts Include="$(TargetDir)decklinkplayer.runtimeconfig.json" />
       <DeckLinkPlayerHelperArtifacts Include="$(TargetDir)DeckLinkOutputHelper.exe" />
-      <NativeLibs Include="$(TargetDir)runtimes\win-x64\native\*.*" />
     </ItemGroup>
 
     <Delete Files="@(ExistingTimestampedExecutables)" />
-    <Copy SourceFiles="@(NativeLibs)" DestinationFolder="$(TargetDir)" />
+    <Delete Files="@(DeckLinkPlayerHelperArtifacts)" />
     <Copy SourceFiles="$(ExecutableSourcePath)" DestinationFiles="$(TimestampedExecutablePath)" />
-    <RemoveDir Directories="$(TargetDir)runtimes" />
     <Message Importance="High" Text="Created timestamped executable: $(TimestampedExecutablePath)" />
   </Target>
 
